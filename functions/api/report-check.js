@@ -2,83 +2,55 @@ export async function onRequestGet({ request, env }) {
   try {
     const url = new URL(request.url);
     const reportId = url.searchParams.get('id');
-
-    if (!reportId) {
-      return json({ error: 'id parameter required' }, 400);
-    }
+    if (!reportId) return json({ error: 'id parameter required' }, 400);
 
     const token = await getAccessToken(env);
+    const base = 'https://sellingpartnerapi-fe.amazon.com/reports/2021-06-30';
+    const h = { headers: { 'x-amz-access-token': token } };
 
-    const statusRes = await fetch(
-      `https://sellingpartnerapi-fe.amazon.com/reports/2021-06-30/reports/${reportId}`,
-      {
-        headers: { 'x-amz-access-token': token },
-      }
-    );
-
+    const statusRes = await fetch(`${base}/reports/${reportId}`, h);
     if (!statusRes.ok) {
       const errText = await statusRes.text();
-      return json(
-        { status: 'FAILED', error: `Status check ${statusRes.status}: ${errText.substring(0, 200)}` },
-        500
-      );
+      return json({ status: 'FAILED', error: `Status check ${statusRes.status}: ${errText.substring(0, 200)}` }, 500);
     }
-
     const statusData = await statusRes.json();
     const processingStatus = statusData.processingStatus;
 
     if (processingStatus === 'IN_QUEUE' || processingStatus === 'IN_PROGRESS') {
       return json({ status: 'IN_PROGRESS', processingStatus });
     }
-
     if (processingStatus === 'CANCELLED' || processingStatus === 'FATAL') {
       return json({ status: 'FAILED', processingStatus, error: 'Report generation failed' });
     }
-
     if (processingStatus !== 'DONE') {
       return json({ status: 'UNKNOWN', processingStatus });
     }
 
     const documentId = statusData.reportDocumentId;
-    if (!documentId) {
-      return json({ status: 'FAILED', error: 'reportDocumentId missing' }, 500);
-    }
+    if (!documentId) return json({ status: 'FAILED', error: 'reportDocumentId missing' }, 500);
 
-    const docRes = await fetch(
-      `https://sellingpartnerapi-fe.amazon.com/reports/2021-06-30/documents/${documentId}`,
-      {
-        headers: { 'x-amz-access-token': token },
-      }
-    );
-
+    const docRes = await fetch(`${base}/documents/${documentId}`, h);
     if (!docRes.ok) {
       const errText = await docRes.text();
-      return json(
-        { status: 'FAILED', error: `Document fetch ${docRes.status}: ${errText.substring(0, 200)}` },
-        500
-      );
+      return json({ status: 'FAILED', error: `Document fetch ${docRes.status}: ${errText.substring(0, 200)}` }, 500);
     }
-
     const docData = await docRes.json();
-    const downloadUrl = docData.url;
-    const compressionAlgorithm = docData.compressionAlgorithm;
 
-    const reportRes = await fetch(downloadUrl);
+    const reportRes = await fetch(docData.url);
     if (!reportRes.ok) {
       return json({ status: 'FAILED', error: `Download failed: ${reportRes.status}` }, 500);
     }
 
-    let reportText;
-    if (compressionAlgorithm === 'GZIP') {
+    let reportBuffer;
+    if (docData.compressionAlgorithm === 'GZIP') {
       const stream = reportRes.body.pipeThrough(new DecompressionStream('gzip'));
-      const decompressed = await new Response(stream).arrayBuffer();
-      reportText = new TextDecoder('shift_jis').decode(decompressed);
+      reportBuffer = await new Response(stream).arrayBuffer();
     } else {
-      const buf = await reportRes.arrayBuffer();
-      reportText = new TextDecoder('shift_jis').decode(buf);
+      reportBuffer = await reportRes.arrayBuffer();
     }
 
-    const skus = parseReport(reportText);
+    const reportText = new TextDecoder('utf-8').decode(reportBuffer);
+    const { skus, debug } = parseReport(reportText);
 
     const payload = {
       updated: new Date().toISOString(),
@@ -86,63 +58,118 @@ export async function onRequestGet({ request, env }) {
       summary: summarize(skus),
       skus,
     };
+    const payloadStr = JSON.stringify(payload);
+    const payloadSize = new TextEncoder().encode(payloadStr).length;
 
-    await env.SKU_CACHE.put('sku_list', JSON.stringify(payload), {
-      expirationTtl: 60 * 60 * 24 * 7,
-    });
+    let kvSaveStatus = 'success';
+    let kvSaveError = null;
+    try {
+      await env.SKU_CACHE.put('sku_list', payloadStr, {
+        expirationTtl: 60 * 60 * 24 * 7,
+      });
+    } catch (e) {
+      kvSaveStatus = 'failed';
+      kvSaveError = e.message;
+    }
 
     return json({
       status: 'DONE',
       count: skus.length,
       summary: payload.summary,
+      debug: {
+        payloadSizeBytes: payloadSize,
+        kvSaveStatus,
+        kvSaveError,
+        kvBinding: env.SKU_CACHE ? 'bound' : 'NOT BOUND',
+        parseDebug: debug,
+      },
     });
   } catch (e) {
-    return json({ status: 'FAILED', error: e.message }, 500);
+    return json({ status: 'FAILED', error: e.message, stack: e.stack }, 500);
   }
 }
 
+const clean = (v) => (v ?? '').replace(/^\uFEFF/, '').trim().replace(/^"+|"+$/g, '').trim();
+
 function parseReport(text) {
   const lines = text.split(/\r?\n/).filter((l) => l.trim());
-  if (lines.length < 2) return [];
+  if (lines.length < 2) return { skus: [], debug: { totalRows: 0, skipped: {}, headers: [], idx: {} } };
 
-  const headers = lines[0].split('\t');
+  const headers = lines[0].split('\t').map(clean);
 
-  const idx = {
-    sku: headers.indexOf('seller-sku'),
-    asin: headers.indexOf('asin1'),
-    name: headers.indexOf('item-name'),
-    price: headers.indexOf('price'),
-    quantity: headers.indexOf('quantity'),
-    channel: headers.indexOf('fulfillment-channel'),
-    status: headers.indexOf('status'),
+  const find = (...names) => {
+    for (const n of names) {
+      const i = headers.indexOf(n);
+      if (i >= 0) return i;
+    }
+    return -1;
   };
 
+  const idx = {
+    sku: find('出品者SKU', 'seller-sku'),
+    asin: find('商品ID', 'asin1', 'product-id'),
+    name: find('商品名', 'item-name'),
+    price: find('価格', 'price'),
+    quantity: find('数量', 'quantity'),
+    stockQty: find('在庫数', 'afn-fulfillable-quantity'),
+    channel: find('フルフィルメント・チャンネル', 'fulfillment-channel'),
+    status: find('ステータス', 'status'),
+  };
+
+  const skipped = { notActive: 0, noSku: 0, noAsin: 0 };
   const skus = [];
+
   for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split('\t');
-    if (cols.length < headers.length) continue;
+    const cols = lines[i].split('\t').map(clean);
+    if (cols.length < 5) continue;
 
     const status = idx.status >= 0 ? cols[idx.status] : 'Active';
-    if (status && status !== 'Active') continue;
+    if (status !== 'Active') {
+      skipped.notActive++;
+      continue;
+    }
+
+    const sku = idx.sku >= 0 ? cols[idx.sku] : '';
+    if (!sku) {
+      skipped.noSku++;
+      continue;
+    }
 
     const asin = idx.asin >= 0 ? cols[idx.asin] : '';
-    if (!asin) continue;
+    if (!asin) {
+      skipped.noAsin++;
+      continue;
+    }
 
     const channelRaw = idx.channel >= 0 ? cols[idx.channel] : '';
-    const channel = channelRaw === 'DEFAULT' ? 'FBM' : (channelRaw ? 'FBA' : 'FBM');
+    const channel = channelRaw.startsWith('AMAZON') ? 'FBA' : 'FBM';
+
+    const qtyStr = (idx.quantity >= 0 ? cols[idx.quantity] : '') ||
+                   (idx.stockQty >= 0 ? cols[idx.stockQty] : '');
+    const quantity = parseInt(qtyStr || '0', 10) || 0;
+
+    const priceStr = idx.price >= 0 ? cols[idx.price] : '0';
+    const price = parseFloat(priceStr || '0') || 0;
 
     skus.push({
-      sku: cols[idx.sku] || '',
+      sku,
       asin,
-      name: (cols[idx.name] || '').substring(0, 80),
-      price: parseFloat(cols[idx.price] || '0') || 0,
-      quantity: parseInt(cols[idx.quantity] || '0', 10) || 0,
+      name: (idx.name >= 0 ? cols[idx.name] : '').substring(0, 80),
+      price,
+      quantity,
       channel,
-      status: 'Active',
     });
   }
 
-  return skus;
+  return {
+    skus,
+    debug: {
+      totalRows: lines.length - 1,
+      skipped,
+      headers,
+      idx,
+    },
+  };
 }
 
 function summarize(skus) {
