@@ -9,7 +9,6 @@ export async function onRequestGet({ request, env }) {
 
     const token = await getAccessToken(env);
 
-    // レポート状態確認
     const statusRes = await fetch(
       `https://sellingpartnerapi-fe.amazon.com/reports/2021-06-30/reports/${reportId}`,
       { headers: { 'x-amz-access-token': token } }
@@ -21,16 +20,12 @@ export async function onRequestGet({ request, env }) {
     }
 
     const documentId = statusData.reportDocumentId;
-
-    // ドキュメント情報取得
     const docRes = await fetch(
       `https://sellingpartnerapi-fe.amazon.com/reports/2021-06-30/documents/${documentId}`,
       { headers: { 'x-amz-access-token': token } }
     );
 
     const docData = await docRes.json();
-
-    // レポート本体ダウンロード
     const reportRes = await fetch(docData.url);
     const compressionAlgorithm = docData.compressionAlgorithm;
 
@@ -42,29 +37,91 @@ export async function onRequestGet({ request, env }) {
       reportBuffer = await reportRes.arrayBuffer();
     }
 
-    // 文字コード別にデコード試行
-    const utf8Text = new TextDecoder('utf-8').decode(reportBuffer);
-    const sjisText = new TextDecoder('shift_jis').decode(reportBuffer);
+    const reportText = new TextDecoder('utf-8').decode(reportBuffer);
+    const lines = reportText.split(/\r?\n/).filter(l => l.trim());
 
-    const utf8Lines = utf8Text.split(/\r?\n/).filter(l => l.trim());
-    const sjisLines = sjisText.split(/\r?\n/).filter(l => l.trim());
+    const headers = lines[0].split('\t');
+    
+    // ヘッダーインデックス
+    const idx = {
+      sku: headers.indexOf('出品者SKU'),
+      asin: headers.indexOf('商品ID'),
+      name: headers.indexOf('商品名'),
+      price: headers.indexOf('価格'),
+      quantity: headers.indexOf('数量'),
+      stockQty: headers.indexOf('在庫数'),
+      channel: headers.indexOf('フルフィルメント・チャンネル'),
+      status: headers.indexOf('ステータス'),
+    };
+
+    // パース統計
+    let stats = {
+      totalLines: lines.length - 1,
+      skippedShortCols: 0,
+      skippedInactive: 0,
+      skippedNoAsin: 0,
+      inactiveStatuses: new Set(),
+      channelValues: new Map(),
+      statusValues: new Map(),
+      passed: 0,
+    };
+
+    const samples = [];
+    for (let i = 1; i < Math.min(lines.length, 11); i++) {
+      const cols = lines[i].split('\t');
+      samples.push({
+        lineNum: i,
+        colsCount: cols.length,
+        headersCount: headers.length,
+        statusValue: idx.status >= 0 ? JSON.stringify(cols[idx.status]) : 'IDX=-1',
+        asinValue: idx.asin >= 0 ? JSON.stringify(cols[idx.asin]) : 'IDX=-1',
+        skuValue: idx.sku >= 0 ? JSON.stringify(cols[idx.sku]) : 'IDX=-1',
+        channelValue: idx.channel >= 0 ? JSON.stringify(cols[idx.channel]) : 'IDX=-1',
+      });
+    }
+
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split('\t');
+
+      if (cols.length < 5) {
+        stats.skippedShortCols++;
+        continue;
+      }
+
+      const status = idx.status >= 0 ? cols[idx.status] : 'Active';
+      stats.statusValues.set(status, (stats.statusValues.get(status) || 0) + 1);
+
+      if (status && status !== 'Active') {
+        stats.skippedInactive++;
+        stats.inactiveStatuses.add(status);
+        continue;
+      }
+
+      const asin = idx.asin >= 0 ? cols[idx.asin] : '';
+      if (!asin) {
+        stats.skippedNoAsin++;
+        continue;
+      }
+
+      const channelRaw = idx.channel >= 0 ? cols[idx.channel] : '';
+      stats.channelValues.set(channelRaw, (stats.channelValues.get(channelRaw) || 0) + 1);
+
+      stats.passed++;
+    }
 
     return json({
-      status: 'OK',
-      compressionAlgorithm,
-      bufferSize: reportBuffer.byteLength,
-      utf8: {
-        totalLines: utf8Lines.length,
-        header: utf8Lines[0] || '(empty)',
-        firstDataRow: utf8Lines[1] || '(empty)',
-        headerColumns: (utf8Lines[0] || '').split('\t'),
+      idx,
+      stats: {
+        totalLines: stats.totalLines,
+        skippedShortCols: stats.skippedShortCols,
+        skippedInactive: stats.skippedInactive,
+        skippedNoAsin: stats.skippedNoAsin,
+        passed: stats.passed,
+        inactiveStatuses: [...stats.inactiveStatuses],
+        statusValues: Object.fromEntries(stats.statusValues),
+        channelValues: Object.fromEntries(stats.channelValues),
       },
-      sjis: {
-        totalLines: sjisLines.length,
-        header: sjisLines[0] || '(empty)',
-        firstDataRow: sjisLines[1] || '(empty)',
-        headerColumns: (sjisLines[0] || '').split('\t'),
-      },
+      samples,
     });
   } catch (e) {
     return json({ error: e.message, stack: e.stack }, 500);
