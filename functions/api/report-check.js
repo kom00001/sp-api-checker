@@ -9,7 +9,6 @@ export async function onRequestGet({ request, env }) {
 
     const token = await getAccessToken(env);
 
-    // レポート状態を確認
     const statusRes = await fetch(
       `https://sellingpartnerapi-fe.amazon.com/reports/2021-06-30/reports/${reportId}`,
       {
@@ -28,17 +27,14 @@ export async function onRequestGet({ request, env }) {
     const statusData = await statusRes.json();
     const processingStatus = statusData.processingStatus;
 
-    // 処理中
     if (processingStatus === 'IN_QUEUE' || processingStatus === 'IN_PROGRESS') {
       return json({ status: 'IN_PROGRESS', processingStatus });
     }
 
-    // 失敗
     if (processingStatus === 'CANCELLED' || processingStatus === 'FATAL') {
       return json({ status: 'FAILED', processingStatus, error: 'Report generation failed' });
     }
 
-    // 完了（DONE）
     if (processingStatus !== 'DONE') {
       return json({ status: 'UNKNOWN', processingStatus });
     }
@@ -48,7 +44,6 @@ export async function onRequestGet({ request, env }) {
       return json({ status: 'FAILED', error: 'reportDocumentId missing' }, 500);
     }
 
-    // レポートドキュメントのダウンロードURL取得
     const docRes = await fetch(
       `https://sellingpartnerapi-fe.amazon.com/reports/2021-06-30/documents/${documentId}`,
       {
@@ -68,7 +63,6 @@ export async function onRequestGet({ request, env }) {
     const downloadUrl = docData.url;
     const compressionAlgorithm = docData.compressionAlgorithm;
 
-    // レポート本体をダウンロード
     const reportRes = await fetch(downloadUrl);
     if (!reportRes.ok) {
       return json({ status: 'FAILED', error: `Download failed: ${reportRes.status}` }, 500);
@@ -76,20 +70,16 @@ export async function onRequestGet({ request, env }) {
 
     let reportText;
     if (compressionAlgorithm === 'GZIP') {
-      // GZIP解凍
       const stream = reportRes.body.pipeThrough(new DecompressionStream('gzip'));
       const decompressed = await new Response(stream).arrayBuffer();
-      // Shift_JISの可能性があるのでTextDecoderで対応
       reportText = new TextDecoder('shift_jis').decode(decompressed);
     } else {
       const buf = await reportRes.arrayBuffer();
       reportText = new TextDecoder('shift_jis').decode(buf);
     }
 
-    // TSVパース
     const skus = parseReport(reportText);
 
-    // KVに保存（7日間）
     const payload = {
       updated: new Date().toISOString(),
       count: skus.length,
@@ -98,7 +88,7 @@ export async function onRequestGet({ request, env }) {
     };
 
     await env.SKU_CACHE.put('sku_list', JSON.stringify(payload), {
-      expirationTtl: 60 * 60 * 24 * 7, // 7日
+      expirationTtl: 60 * 60 * 24 * 7,
     });
 
     return json({
@@ -117,7 +107,6 @@ function parseReport(text) {
 
   const headers = lines[0].split('\t');
 
-  // 必要なカラムのインデックス取得
   const idx = {
     sku: headers.indexOf('seller-sku'),
     asin: headers.indexOf('asin1'),
@@ -134,10 +123,10 @@ function parseReport(text) {
     if (cols.length < headers.length) continue;
 
     const status = idx.status >= 0 ? cols[idx.status] : 'Active';
-    if (status && status !== 'Active') continue; // 非アクティブ除外
+    if (status && status !== 'Active') continue;
 
     const asin = idx.asin >= 0 ? cols[idx.asin] : '';
-    if (!asin) continue; // ASINなし除外
+    if (!asin) continue;
 
     const channelRaw = idx.channel >= 0 ? cols[idx.channel] : '';
     const channel = channelRaw === 'DEFAULT' ? 'FBM' : (channelRaw ? 'FBA' : 'FBM');
