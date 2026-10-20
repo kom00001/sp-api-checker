@@ -1,0 +1,84 @@
+<!-- Output: html -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ログイン - SP-API Checker</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; background: #f5f5f7; padding: 20px;
+    }
+    .card {
+      background: #fff; padding: 32px; border-radius: 12px;
+      box-shadow: 0 2px 16px rgba(0,0,0,0.08);
+      width: 100%; max-width: 360px;
+    }
+    h1 { font-size: 20px; margin-bottom: 24px; text-align: center; color: #333; }
+    input[type="password"] {
+      width: 100%; padding: 12px; font-size: 16px;
+      border: 1px solid #ddd; border-radius: 8px; margin-bottom: 12px;
+      -webkit-appearance: none;
+    }
+    button {
+      width: 100%; padding: 12px; font-size: 16px; font-weight: 600;
+      background: #0071e3; color: #fff; border: none; border-radius: 8px;
+      cursor: pointer;
+    }
+    button:disabled { background: #999; cursor: not-allowed; }
+    .error { color: #d00; font-size: 14px; margin-top: 12px; text-align: center; min-height: 20px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🔒 SP-API Checker</h1>
+    <form id="loginForm">
+      <input type="password" id="password" placeholder="パスワード" autocomplete="current-password" required>
+      <button type="submit" id="submitBtn">ログイン</button>
+      <div class="error" id="error"></div>
+    </form>
+  </div>
+
+  <script>
+    const form = document.getElementById("loginForm");
+    const errorEl = document.getElementById("error");
+    const btn = document.getElementById("submitBtn");
+    const pwInput = document.getElementById("password");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      errorEl.textContent = "";
+      btn.disabled = true;
+      btn.textContent = "認証中...";
+
+      try {
+        const res = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: pwInput.value }),
+        });
+
+        if (res.ok) {
+          window.location.href = "/";
+          return;
+        }
+
+        if (res.status === 429) {
+          errorEl.textContent = "試行回数が多すぎます。しばらく待ってから再試行してください。";
+        } else {
+          errorEl.textContent = "パスワードが正しくありません";
+        }
+      } catch (err) {
+        errorEl.textContent = "通信エラーが発生しました";
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "ログイン";
+        pwInput.value = "";
+      }
+    });
+  </script>
+</body>
+</html>
