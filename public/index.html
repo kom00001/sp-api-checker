@@ -95,6 +95,8 @@
     .counter-val{font-weight:700;color:#007aff}
     .counter-val.warn{color:#dc3545}
     .sort-row{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12px;color:#666}
+    .stock-filter{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:#333;cursor:pointer;user-select:none}
+    .stock-filter input{width:18px;height:18px;accent-color:#007aff}
     .sort-select{flex:1;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;background:#fff;color:#333}
     .modal-list{flex:1;overflow-y:auto;padding:8px;-webkit-overflow-scrolling:touch}
     .sku-row{background:#fff;border-radius:10px;padding:10px;margin-bottom:6px;display:flex;align-items:center;gap:10px;box-shadow:0 1px 3px rgba(0,0,0,0.08)}
@@ -266,6 +268,7 @@ const LATE_THRESHOLD_MS = 5 * 60 * 1000;
 const HISTORY_KEY = 'priceHistory';
 const HISTORY_MAX = 50;
 const SORT_KEY = 'skuSortMode';
+const STOCK_FILTER_KEY = 'hideZeroStock';
 
 let results = [];
 let currentFilter = 'all';
@@ -844,6 +847,8 @@ async function openSelector() {
   // 保存済みソートモードを復元
   const savedSort = localStorage.getItem(SORT_KEY) || 'sku';
   document.getElementById('sortSelect').value = savedSort;
+  const savedHideZero = localStorage.getItem(STOCK_FILTER_KEY) !== 'false'; // デフォルトtrue
+  document.getElementById('hideZeroStock').checked = savedHideZero;
 
   document.getElementById('modalList').innerHTML = '<div class="loading">⏳ 読み込み中...</div>';
   const existing = document.getElementById('skuInput').value.split('\n').map(s => s.trim()).filter(s => s);
@@ -886,6 +891,12 @@ function renderSkuList() {
     (s.asin || '').toLowerCase().includes(q) ||
     (s.name || '').toLowerCase().includes(q)
   );
+    // 在庫0除外フィルタ（既選択は維持）
+  const hideZero = document.getElementById('hideZeroStock').checked;
+  localStorage.setItem(STOCK_FILTER_KEY, hideZero ? 'true' : 'false');
+  if (hideZero) {
+    items = items.filter(s => (s.quantity || 0) > 0 || selectedSkus.has(s.sku));
+  }
 
   // ソート処理
   items.sort((a, b) => {
