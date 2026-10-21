@@ -10,8 +10,9 @@
   <style>
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
     body{font-family:-apple-system,sans-serif;background:#f2f2f7;font-size:15px}
-    .header{background:#007aff;color:#fff;padding:12px;position:sticky;top:0;z-index:10}
-    .header h1{font-size:17px}
+    .header{background:#007aff;color:#fff;padding:12px;position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:10px}
+    .header h1{font-size:17px;flex:1}
+    .header-btn{background:rgba(255,255,255,0.2);border:none;color:#fff;padding:6px 10px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer}
     .control{background:#fff;padding:12px;border-bottom:1px solid #ddd}
     .sku-input{width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;font-size:14px;min-height:80px;font-family:monospace}
     .sku-info{font-size:11px;color:#666;margin:4px 0}
@@ -43,11 +44,14 @@
     .price-cell{background:#f9f9f9;padding:6px;border-radius:4px;text-align:center}
     .price-cell .label{color:#666;font-size:10px;margin-bottom:2px}
     .price-cell .value{font-weight:700;font-size:13px}
-    .status-row{display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:6px;border-top:1px solid #eee}
+    .status-row{display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:6px;border-top:1px solid #eee;flex-wrap:wrap;gap:6px}
     .status-badge{padding:4px 8px;border-radius:4px;font-size:11px;font-weight:700}
     .status-badge.got{background:#28a745;color:#fff}
     .status-badge.lost{background:#dc3545;color:#fff}
     .status-badge.error{background:#999;color:#fff}
+    .pending-badge{padding:4px 8px;border-radius:4px;font-size:11px;font-weight:700;background:#fff3cd;color:#856404;animation:pulse 1.5s infinite}
+    .pending-badge.late{background:#ffe4e4;color:#dc3545;animation:none}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.6}}
     .diff{font-size:11px;color:#666}
     .diff.danger{color:#dc3545;font-weight:700}
     .diff.ok{color:#28a745}
@@ -62,16 +66,23 @@
     .pbtn{padding:6px 10px;border:1px solid #007aff;background:#fff;color:#007aff;border-radius:5px;font-size:12px;font-weight:600;flex:1;min-width:60px;cursor:pointer}
     .pbtn:disabled{opacity:0.4}
     .pbtn.danger{border-color:#dc3545;color:#dc3545}
+    .pbtn.success{border-color:#28a745;color:#28a745}
     .update-status{font-size:11px;margin-top:6px;padding:4px;border-radius:4px;text-align:center}
     .update-status.ok{background:#d4edda;color:#155724}
     .update-status.err{background:#f8d7da;color:#721c24}
     .update-status.pending{background:#fff3cd;color:#856404}
+    .history-note{font-size:10px;color:#999;margin-top:4px;padding:3px 6px;background:#f5f5f5;border-radius:4px}
+    .recheck-btn-row{display:flex;gap:4px;margin-top:6px}
+    .recheck-btn{padding:5px 8px;border:1px solid #ccc;background:#fff;color:#333;border-radius:5px;font-size:11px;cursor:pointer;flex:1}
     .bulk-bar{background:#fff;margin:8px;padding:10px;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,0.08);display:none}
     .bulk-bar.show{display:block}
     .bulk-count{font-size:13px;font-weight:700;margin-bottom:6px}
     .bulk-count .n{color:#007aff}
     .bulk-row{display:flex;gap:4px;flex-wrap:wrap}
     .bulk-row .pbtn{padding:8px 10px}
+    .progress-bar{background:#007aff;color:#fff;margin:8px;padding:10px 12px;border-radius:10px;font-size:13px;font-weight:700;text-align:center;display:none;box-shadow:0 2px 6px rgba(0,122,255,0.3)}
+    .progress-bar.show{display:block}
+    .progress-bar.done{background:#28a745}
     .modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:100}
     .modal-overlay.show{display:flex;flex-direction:column}
     .modal{background:#f2f2f7;width:100%;height:100%;display:flex;flex-direction:column}
@@ -99,6 +110,14 @@
     .modal-footer{background:#fff;padding:10px 12px;border-top:1px solid #ddd;display:flex;gap:8px}
     .modal-footer .btn{flex:1}
     .update-info{font-size:11px;color:#666;text-align:center;padding:6px;background:#fffbe6;border-bottom:1px solid #ffe58f}
+    .history-item{background:#fff;padding:10px 12px;margin-bottom:6px;border-radius:8px;font-size:12px;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
+    .history-item .hi-time{color:#999;font-size:10px;margin-bottom:2px}
+    .history-item .hi-sku{font-weight:700;color:#007aff;font-family:monospace;margin-bottom:2px}
+    .history-item .hi-change{font-size:13px}
+    .history-item .hi-change .old{color:#999;text-decoration:line-through;margin-right:6px}
+    .history-item .hi-change .new{color:#dc3545;font-weight:700}
+    .history-item.failed{border-left:3px solid #dc3545}
+    .history-item.failed .hi-change .new{color:#999}
     .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;z-index:200;animation:fadein 0.2s;max-width:90%;text-align:center}
     @keyframes fadein{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
     .dialog-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:300;align-items:center;justify-content:center;padding:20px}
@@ -119,6 +138,7 @@
 
 <div class="header">
   <h1>🔍 Amazon価格チェッカー</h1>
+  <button class="header-btn" onclick="openHistory()">📜 履歴</button>
 </div>
 
 <div class="control">
@@ -133,6 +153,8 @@
     <button class="btn btn-tertiary" onclick="openSelector()">📋 一覧から選択</button>
   </div>
 </div>
+
+<div class="progress-bar" id="progressBar"></div>
 
 <div id="result" style="display:none">
   <div class="summary" id="summary"></div>
@@ -158,6 +180,7 @@
   👆 上にSKUを入力して「チェック」を押してください
 </div>
 
+<!-- SKU選択モーダル -->
 <div class="modal-overlay" id="modal">
   <div class="modal">
     <div class="modal-header">
@@ -187,6 +210,21 @@
   </div>
 </div>
 
+<!-- 変更履歴モーダル -->
+<div class="modal-overlay" id="historyModal">
+  <div class="modal">
+    <div class="modal-header">
+      <button class="modal-close" onclick="closeHistory()">✕</button>
+      <h2>📜 価格変更履歴</h2>
+      <button class="header-btn" onclick="clearHistory()">🗑 クリア</button>
+    </div>
+    <div class="modal-list" id="historyList">
+      <div class="loading">履歴を読み込み中...</div>
+    </div>
+  </div>
+</div>
+
+<!-- 確認ダイアログ -->
 <div class="dialog-overlay" id="dialog">
   <div class="dialog">
     <h3 id="dialogTitle">価格変更の確認</h3>
@@ -199,12 +237,18 @@
 </div>
 
 <script>
+// ===== 定数 =====
 const MAX_SKUS = 20;
 const COOLDOWN_SEC = 90;
 const UPDATE_KEY = 'lastSkuUpdate';
 const PRICE_WARN_RATIO = 0.3;
 const BULK_CONCURRENCY = 3;
+const RECHECK_DELAY_MS = 5 * 60 * 1000; // 5分
+const LATE_THRESHOLD_MS = 5 * 60 * 1000; // 5分経過で遅延マーク
+const HISTORY_KEY = 'priceHistory';
+const HISTORY_MAX = 50;
 
+// ===== 状態 =====
 let results = [];
 let currentFilter = 'all';
 let skuData = { items: [], updated: null };
@@ -212,7 +256,10 @@ let selectedSkus = new Set();
 let currentChannel = 'ALL';
 let cooldownTimer = null;
 let bulkSelection = new Set();
+let pendingSkus = new Map(); // sku → {targetPrice, requestedAt, timerId}
+let pendingTick = null;
 
+// ===== 初期化 =====
 window.addEventListener('load', () => {
   const saved = localStorage.getItem('skus');
   if (saved) {
@@ -221,6 +268,10 @@ window.addEventListener('load', () => {
   }
   updateCooldownDisplay();
   document.getElementById('skuInput').addEventListener('input', updateInputInfo);
+  // タブ復帰時に遅延チェック
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) checkPendingTimers();
+  });
 });
 
 function updateInputInfo() {
@@ -239,6 +290,7 @@ function saveSKUs() {
   toast('💾 保存しました');
 }
 
+// ===== 価格チェック =====
 async function check() {
   const text = document.getElementById('skuInput').value.trim();
   if (!text) { alert('SKUを入力してください'); return; }
@@ -264,6 +316,8 @@ async function check() {
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     results = data;
+    // 既存の pendingSku があれば反映判定
+    checkPendingAgainstResults();
     render();
   } catch (e) {
     document.getElementById('list').innerHTML = `<div class="loading">❌ ${e.message}</div>`;
@@ -317,6 +371,24 @@ function renderCard(r) {
   }
   const isBulkSelected = bulkSelection.has(r.sku);
   const hasCart = r.cartPrice && r.cartPrice > 0;
+  const pending = pendingSkus.get(r.sku);
+  const lastHistory = getLastHistoryForSku(r.sku);
+
+  // 反映待ちバッジ
+  let pendingBadge = '';
+  if (pending) {
+    const elapsed = Date.now() - pending.requestedAt;
+    const isLate = elapsed > LATE_THRESHOLD_MS;
+    pendingBadge = `<span class="pending-badge ${isLate ? 'late' : ''}">${isLate ? '⚠ 反映遅延' : '⏱ 反映待ち'} (¥${pending.targetPrice.toLocaleString()})</span>`;
+  }
+
+  // 履歴メモ
+  let historyNote = '';
+  if (lastHistory) {
+    const ago = formatAgo(Date.now() - lastHistory.at);
+    historyNote = `<div class="history-note">📜 ${ago} ¥${lastHistory.oldPrice.toLocaleString()} → ¥${lastHistory.newPrice.toLocaleString()}</div>`;
+  }
+
   return `
     <div class="card ${statusClass}" data-sku="${escapeHtml(r.sku)}">
       <div class="card-head">
@@ -333,8 +405,12 @@ function renderCard(r) {
       </div>
       <div class="status-row">
         <span class="diff ${diffClass}">${diffText}</span>
-        <span class="status-badge ${statusClass}">${statusText}</span>
+        <span style="display:flex;gap:4px;flex-wrap:wrap">
+          ${pendingBadge}
+          <span class="status-badge ${statusClass}">${statusText}</span>
+        </span>
       </div>
+      ${historyNote}
       <div class="price-edit">
         <div class="price-edit-label">💰 価格変更</div>
         <div class="price-edit-row">
@@ -344,6 +420,7 @@ function renderCard(r) {
           <button class="pbtn" onclick="askPriceChange('${escapeHtml(r.sku)}', 'custom')">任意</button>
         </div>
         <div class="update-status" id="status-${escapeHtml(r.sku)}" style="display:none"></div>
+        ${pending ? `<div class="recheck-btn-row"><button class="recheck-btn" onclick="manualRecheck('${escapeHtml(r.sku)}')">🔄 反映確認</button></div>` : ''}
       </div>
     </div>
   `;
@@ -355,6 +432,7 @@ function setFilter(f) {
   render();
 }
 
+// ===== 価格変更 =====
 function askPriceChange(sku, option) {
   const r = results.find(x => x.sku === sku);
   if (!r) { toast('⚠️ 対象SKUが見つかりません'); return; }
@@ -423,12 +501,22 @@ function showPriceConfirmDialog(items, label) {
 }
 
 async function executePriceChange(items) {
+  const total = items.length;
+  let done = 0, okCount = 0, errCount = 0;
+
+  // 進捗バー表示
+  const pb = document.getElementById('progressBar');
+  pb.classList.remove('done');
+  pb.classList.add('show');
+  pb.textContent = `処理中: 0/${total}完了`;
+
   items.forEach(x => {
     const card = document.querySelector(`.card[data-sku="${CSS.escape(x.sku)}"]`);
     if (card) card.classList.add('updating');
     const st = document.getElementById(`status-${x.sku}`);
     if (st) { st.style.display = 'block'; st.className = 'update-status pending'; st.textContent = '⏳ 変更中...'; }
   });
+
   const queue = [...items];
   const results2 = [];
   const workers = Array(Math.min(BULK_CONCURRENCY, queue.length)).fill(null).map(async () => {
@@ -442,50 +530,233 @@ async function executePriceChange(items) {
         });
         const data = await res.json();
         results2.push({ ...x, ...data });
+        done++;
+        if (data.ok) {
+          okCount++;
+          // 履歴追加
+          addHistory({ at: Date.now(), sku: x.sku, oldPrice: x.oldPrice, newPrice: x.newPrice, name: x.name, ok: true, submissionId: data.submissionId });
+          // 反映待ち登録
+          registerPending(x.sku, x.newPrice);
+        } else {
+          errCount++;
+          addHistory({ at: Date.now(), sku: x.sku, oldPrice: x.oldPrice, newPrice: x.newPrice, name: x.name, ok: false, error: data.error });
+        }
         const st = document.getElementById(`status-${x.sku}`);
         if (st) {
-          if (data.ok) { st.className = 'update-status ok'; st.textContent = `✅ 変更受付 (¥${x.newPrice.toLocaleString()})`; }
+          if (data.ok) { st.className = 'update-status ok'; st.textContent = `✅ 変更受付 (¥${x.newPrice.toLocaleString()}) 5分後に自動確認`; }
           else { st.className = 'update-status err'; st.textContent = `❌ ${(data.error || 'エラー').substring(0, 60)}`; }
         }
       } catch (e) {
+        done++; errCount++;
         results2.push({ ...x, ok: false, error: e.message });
+        addHistory({ at: Date.now(), sku: x.sku, oldPrice: x.oldPrice, newPrice: x.newPrice, name: x.name, ok: false, error: e.message });
         const st = document.getElementById(`status-${x.sku}`);
         if (st) { st.className = 'update-status err'; st.textContent = `❌ ${e.message}`; }
       }
+      pb.textContent = `処理中: ${done}/${total}完了 ✅${okCount} ❌${errCount}`;
     }
   });
   await Promise.all(workers);
+
   items.forEach(x => {
     const card = document.querySelector(`.card[data-sku="${CSS.escape(x.sku)}"]`);
     if (card) card.classList.remove('updating');
   });
-  const okCount = results2.filter(r => r.ok).length;
-  const errCount = results2.length - okCount;
+
+  // 完了表示→3秒で消す
+  pb.classList.add('done');
+  pb.textContent = `✅ 完了: ${okCount}件成功 / ${errCount}件失敗`;
+  setTimeout(() => pb.classList.remove('show'), 3000);
+
   toast(`完了: ✅${okCount}件 ❌${errCount}件`);
-  const okSkus = results2.filter(r => r.ok).map(r => r.sku);
-  if (okSkus.length > 0) setTimeout(() => recheckSkus(okSkus), 5000);
   bulkSelection.clear();
   updateBulkBar();
+  render(); // 反映待ちバッジ・履歴メモ即反映
 }
 
-async function recheckSkus(skus) {
+// ===== 反映待ち管理 =====
+function registerPending(sku, targetPrice) {
+  // 既存タイマークリア
+  const existing = pendingSkus.get(sku);
+  if (existing && existing.timerId) clearTimeout(existing.timerId);
+
+  const timerId = setTimeout(() => {
+    autoRecheckPending(sku);
+  }, RECHECK_DELAY_MS);
+
+  pendingSkus.set(sku, {
+    targetPrice,
+    requestedAt: Date.now(),
+    timerId,
+  });
+
+  // 遅延バッジ更新用のtickを開始
+  startPendingTick();
+}
+
+function startPendingTick() {
+  if (pendingTick) return;
+  pendingTick = setInterval(() => {
+    if (pendingSkus.size === 0) {
+      clearInterval(pendingTick); pendingTick = null; return;
+    }
+    // 遅延マーク（5分経過）があるものだけ再描画
+    const now = Date.now();
+    let hasChange = false;
+    pendingSkus.forEach((p, sku) => {
+      const elapsed = now - p.requestedAt;
+      // 5分 ± 10秒 の範囲で1回だけ再描画トリガー
+      if (!p.lateMarked && elapsed > LATE_THRESHOLD_MS) {
+        p.lateMarked = true;
+        hasChange = true;
+      }
+    });
+    if (hasChange) render();
+  }, 10000);
+}
+
+async function autoRecheckPending(sku) {
+  const pending = pendingSkus.get(sku);
+  if (!pending) return;
+  if (!results.find(r => r.sku === sku)) {
+    // 結果リストから消えていたらスキップ（別SKUをチェック中）
+    pendingSkus.delete(sku);
+    return;
+  }
   try {
     const res = await fetch('/api/check', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ skus })
+      body: JSON.stringify({ skus: [sku] })
     });
     const data = await res.json();
-    if (data.error) return;
-    data.forEach(newR => {
-      const idx = results.findIndex(r => r.sku === newR.sku);
-      if (idx >= 0) results[idx] = newR;
-    });
-    render();
-    toast('🔄 再チェック完了');
-  } catch (e) { toast('⚠️ 再チェック失敗: ' + e.message); }
+    if (data.error) throw new Error(data.error);
+    if (data[0]) {
+      const idx = results.findIndex(r => r.sku === sku);
+      if (idx >= 0) results[idx] = data[0];
+      // 反映判定
+      if (data[0].myPrice === pending.targetPrice) {
+        pendingSkus.delete(sku);
+        toast(`✅ ${sku} 反映確認`);
+      } else {
+        // まだ反映されていない → pendingは残す（late判定で表示）
+        toast(`⏳ ${sku} まだ反映されていません`);
+      }
+      render();
+    }
+  } catch (e) {
+    toast(`⚠️ ${sku} 再チェック失敗: ${e.message}`);
+  }
 }
 
+async function manualRecheck(sku) {
+  const pending = pendingSkus.get(sku);
+  if (!pending) { toast('⚠️ 反映待ち対象ではありません'); return; }
+  await autoRecheckPending(sku);
+}
+
+function checkPendingAgainstResults() {
+  // check()で全件取り直した時に、pendingSkusと照合
+  let settled = 0;
+  pendingSkus.forEach((p, sku) => {
+    const r = results.find(x => x.sku === sku);
+    if (r && r.myPrice === p.targetPrice) {
+      if (p.timerId) clearTimeout(p.timerId);
+      pendingSkus.delete(sku);
+      settled++;
+    }
+  });
+  if (settled > 0) toast(`✅ ${settled}件の反映を確認`);
+}
+
+function checkPendingTimers() {
+  // タブ復帰時: setTimeoutが遅延していないかチェック
+  const now = Date.now();
+  pendingSkus.forEach((p, sku) => {
+    const elapsed = now - p.requestedAt;
+    if (elapsed > RECHECK_DELAY_MS + 10000) {
+      // タイマーが実行されずに5分+10秒経過 → 手動で再チェック実行
+      if (p.timerId) clearTimeout(p.timerId);
+      p.timerId = null;
+      autoRecheckPending(sku);
+    }
+  });
+}
+
+// ===== 変更履歴 =====
+function addHistory(entry) {
+  const list = loadHistory();
+  list.unshift(entry);
+  if (list.length > HISTORY_MAX) list.length = HISTORY_MAX;
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(list));
+}
+
+function loadHistory() {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function getLastHistoryForSku(sku) {
+  const list = loadHistory();
+  return list.find(h => h.sku === sku && h.ok) || null;
+}
+
+function openHistory() {
+  document.getElementById('historyModal').classList.add('show');
+  renderHistory();
+}
+
+function closeHistory() {
+  document.getElementById('historyModal').classList.remove('show');
+}
+
+function clearHistory() {
+  if (!confirm('履歴を全削除しますか？')) return;
+  localStorage.removeItem(HISTORY_KEY);
+  renderHistory();
+  toast('🗑 履歴を削除しました');
+}
+
+function renderHistory() {
+  const list = loadHistory();
+  const container = document.getElementById('historyList');
+  if (list.length === 0) {
+    container.innerHTML = '<div class="empty">履歴がありません</div>';
+    return;
+  }
+  container.innerHTML = list.map(h => {
+    const d = new Date(h.at);
+    const timeStr = `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
+    const okMark = h.ok ? '✅' : '❌';
+    return `
+      <div class="history-item ${h.ok ? '' : 'failed'}">
+        <div class="hi-time">${timeStr} ${okMark}</div>
+        <div class="hi-sku">${escapeHtml(h.sku)}</div>
+        <div style="font-size:11px;color:#666;margin:2px 0">${escapeHtml((h.name||'').substring(0,40))}</div>
+        <div class="hi-change">
+          <span class="old">¥${h.oldPrice.toLocaleString()}</span>
+          <span class="new">¥${h.newPrice.toLocaleString()}</span>
+        </div>
+        ${!h.ok ? `<div style="font-size:11px;color:#dc3545;margin-top:4px">${escapeHtml((h.error||'').substring(0,80))}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+function formatAgo(ms) {
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec}秒前`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}分前`;
+  const hour = Math.floor(min / 60);
+  if (hour < 24) return `${hour}時間前`;
+  const day = Math.floor(hour / 24);
+  return `${day}日前`;
+}
+
+// ===== 一括変更 =====
 function toggleBulk(sku, cb) {
   if (cb.checked) bulkSelection.add(sku);
   else bulkSelection.delete(sku);
@@ -544,6 +815,7 @@ function bulkPriceChange(option) {
 function openDialog() { document.getElementById('dialog').classList.add('show'); }
 function closeDialog() { document.getElementById('dialog').classList.remove('show'); }
 
+// ===== SKU一覧更新 =====
 async function updateSkuList() {
   const remain = getCooldownRemain();
   if (remain > 0) { toast(`⏳ あと${formatSec(remain)}お待ちください`); return; }
@@ -598,6 +870,7 @@ function updateCooldownDisplay() {
   if (getCooldownRemain() > 0) cooldownTimer = setInterval(tick, 1000);
 }
 
+// ===== SKU選択モーダル =====
 async function openSelector() {
   document.getElementById('modal').classList.add('show');
   selectedSkus = new Set();
@@ -689,6 +962,7 @@ function applySelection() {
   toast(`✅ ${skus.length}件を適用`);
 }
 
+// ===== ユーティリティ =====
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function escapeHtml(s) { return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function toast(msg) {
