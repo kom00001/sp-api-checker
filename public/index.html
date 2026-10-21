@@ -1,4 +1,5 @@
 <!-- Output: html -->
+<!-- File: public/index.html -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -15,9 +16,11 @@
     .sku-input{width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;font-size:14px;min-height:80px;font-family:monospace}
     .sku-info{font-size:11px;color:#666;margin:4px 0}
     .btn-row{display:flex;gap:8px;margin-top:8px}
+    .btn-row-2{display:flex;gap:8px;margin-top:8px}
     .btn{flex:1;padding:12px;border:none;border-radius:8px;font-size:14px;font-weight:600}
     .btn-primary{background:#007aff;color:#fff}
     .btn-secondary{background:#eee;color:#333}
+    .btn-tertiary{background:#fff;color:#007aff;border:1px solid #007aff}
     .btn:disabled{opacity:0.5}
     .summary{background:#fff;margin:8px;padding:10px 12px;border-radius:10px;font-size:13px;box-shadow:0 1px 3px rgba(0,0,0,0.08)}
     .sum-row{display:flex;gap:10px;flex-wrap:wrap}
@@ -48,6 +51,64 @@
     .diff.ok{color:#28a745}
     .loading{text-align:center;padding:40px;color:#666}
     .empty{text-align:center;padding:40px;color:#999;font-size:14px}
+
+    /* ===== モーダル（SKU選択） ===== */
+    .modal-overlay{
+      display:none;position:fixed;top:0;left:0;right:0;bottom:0;
+      background:rgba(0,0,0,0.5);z-index:100;
+    }
+    .modal-overlay.show{display:flex;flex-direction:column}
+    .modal{
+      background:#f2f2f7;width:100%;height:100%;display:flex;flex-direction:column;
+    }
+    .modal-header{
+      background:#007aff;color:#fff;padding:12px;display:flex;align-items:center;gap:10px;
+      position:sticky;top:0;z-index:5;
+    }
+    .modal-header h2{font-size:16px;flex:1}
+    .modal-close{background:transparent;border:none;color:#fff;font-size:22px;padding:0 6px;cursor:pointer}
+    .modal-controls{background:#fff;padding:10px 12px;border-bottom:1px solid #ddd}
+    .modal-search{
+      width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;font-size:14px;
+    }
+    .modal-counter{
+      font-size:12px;color:#666;margin:8px 0 6px;display:flex;justify-content:space-between;align-items:center;
+    }
+    .counter-val{font-weight:700;color:#007aff}
+    .counter-val.warn{color:#dc3545}
+    .modal-list{flex:1;overflow-y:auto;padding:8px;-webkit-overflow-scrolling:touch}
+    .sku-row{
+      background:#fff;border-radius:10px;padding:10px;margin-bottom:6px;
+      display:flex;align-items:center;gap:10px;box-shadow:0 1px 3px rgba(0,0,0,0.08);
+    }
+    .sku-row.selected{background:#e3f2fd;border:1px solid #007aff}
+    .sku-row.disabled{opacity:0.4}
+    .sku-check{
+      width:22px;height:22px;flex-shrink:0;accent-color:#007aff;
+    }
+    .sku-body{flex:1;min-width:0}
+    .sku-top{display:flex;align-items:center;gap:6px;margin-bottom:3px}
+    .sku-code{font-weight:700;font-size:13px;font-family:monospace;color:#007aff;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .sku-badge{
+      padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;flex-shrink:0;
+    }
+    .sku-badge.FBA{background:#007aff;color:#fff}
+    .sku-badge.FBM{background:#28a745;color:#fff}
+    .sku-name{font-size:12px;color:#333;line-height:1.3;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical}
+    .sku-price{font-size:11px;color:#666}
+    .modal-footer{
+      background:#fff;padding:10px 12px;border-top:1px solid #ddd;display:flex;gap:8px;
+    }
+    .modal-footer .btn{flex:1}
+    .update-info{
+      font-size:11px;color:#666;text-align:center;padding:6px;background:#fffbe6;border-bottom:1px solid #ffe58f;
+    }
+    .toast{
+      position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+      background:rgba(0,0,0,0.85);color:#fff;padding:10px 20px;border-radius:20px;
+      font-size:13px;z-index:200;animation:fadein 0.2s;
+    }
+    @keyframes fadein{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
   </style>
 </head>
 <body>
@@ -58,10 +119,14 @@
 
 <div class="control">
   <textarea class="sku-input" id="skuInput" placeholder="SKUを1行ずつ入力&#10;例:&#10;ABC-001&#10;ABC-002"></textarea>
-  <div class="sku-info">SKUを1行ずつ入力(最大20件)</div>
+  <div class="sku-info" id="inputInfo">SKUを1行ずつ入力(最大20件)</div>
   <div class="btn-row">
     <button class="btn btn-secondary" onclick="saveSKUs()">💾 保存</button>
     <button class="btn btn-primary" id="checkBtn" onclick="check()">🔍 チェック</button>
+  </div>
+  <div class="btn-row-2">
+    <button class="btn btn-tertiary" id="updateBtn" onclick="updateSkuList()">🔄 SKU一覧を更新</button>
+    <button class="btn btn-tertiary" onclick="openSelector()">📋 一覧から選択</button>
   </div>
 </div>
 
@@ -79,27 +144,83 @@
   👆 上にSKUを入力して「チェック」を押してください
 </div>
 
+<!-- ===== SKU選択モーダル ===== -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-header">
+      <button class="modal-close" onclick="closeSelector()">✕</button>
+      <h2>📋 SKU一覧から選択</h2>
+    </div>
+    <div class="update-info" id="updateInfo" style="display:none"></div>
+    <div class="modal-controls">
+      <input type="text" class="modal-search" id="searchInput" placeholder="🔍 SKU・ASIN・商品名で検索" oninput="renderSkuList()">
+      <div class="modal-counter">
+        <span>選択中: <span class="counter-val" id="counter">0/20</span></span>
+        <span id="filterCount"></span>
+      </div>
+      <div class="filter" style="padding:0">
+        <button class="fbtn active" data-ch="ALL" onclick="setChannel('ALL')">全て</button>
+        <button class="fbtn" data-ch="FBA" onclick="setChannel('FBA')">FBA</button>
+        <button class="fbtn" data-ch="FBM" onclick="setChannel('FBM')">自己発送</button>
+      </div>
+    </div>
+    <div class="modal-list" id="modalList">
+      <div class="loading">⏳ 読み込み中...</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeSelector()">キャンセル</button>
+      <button class="btn btn-primary" id="applyBtn" onclick="applySelection()">✅ 追加</button>
+    </div>
+  </div>
+</div>
+
 <script>
+// ===== 既存機能 =====
 let results = [];
 let currentFilter = 'all';
 
+// ===== SKU選択機能 =====
+const MAX_SKUS = 20;
+const COOLDOWN_SEC = 90;
+const UPDATE_KEY = 'lastSkuUpdate';
+let skuData = { items: [], updated: null };
+let selectedSkus = new Set();
+let currentChannel = 'ALL';
+let cooldownTimer = null;
+
 window.addEventListener('load', () => {
   const saved = localStorage.getItem('skus');
-  if (saved) document.getElementById('skuInput').value = saved;
+  if (saved) {
+    document.getElementById('skuInput').value = saved;
+    updateInputInfo();
+  }
+  updateCooldownDisplay();
+  document.getElementById('skuInput').addEventListener('input', updateInputInfo);
 });
+
+function updateInputInfo() {
+  const text = document.getElementById('skuInput').value;
+  const count = text.split('\n').map(s => s.trim()).filter(s => s).length;
+  const info = document.getElementById('inputInfo');
+  if (count > MAX_SKUS) {
+    info.innerHTML = `<span style="color:#dc3545;font-weight:700">${count}件（最大${MAX_SKUS}件まで）</span>`;
+  } else {
+    info.textContent = `SKUを1行ずつ入力(${count}/${MAX_SKUS}件)`;
+  }
+}
 
 function saveSKUs() {
   localStorage.setItem('skus', document.getElementById('skuInput').value);
-  alert('保存しました');
+  toast('💾 保存しました');
 }
 
 async function check() {
   const text = document.getElementById('skuInput').value.trim();
   if (!text) { alert('SKUを入力してください'); return; }
-  
+
   const skus = text.split('\n').map(s => s.trim()).filter(s => s);
-  if (skus.length > 20) { alert('一度に20件まで'); return; }
-  
+  if (skus.length > MAX_SKUS) { alert(`一度に${MAX_SKUS}件まで`); return; }
+
   const btn = document.getElementById('checkBtn');
   btn.disabled = true;
   btn.textContent = '取得中...';
@@ -107,7 +228,7 @@ async function check() {
   document.getElementById('result').style.display = 'block';
   document.getElementById('list').innerHTML = '<div class="loading">⏳ 取得中...</div>';
   document.getElementById('summary').innerHTML = '取得中...';
-  
+
   try {
     const res = await fetch('/api/check', {
       method: 'POST',
@@ -134,7 +255,7 @@ function render() {
     else if (r.hasBuyBox) stats.got++;
     else stats.lost++;
   });
-  
+
   document.getElementById('summary').innerHTML = `
     <div class="sum-row">
       <span class="sum-item">全${stats.total}品</span>
@@ -143,23 +264,23 @@ function render() {
       ${stats.error > 0 ? `<span style="color:#999">⚠️エラー${stats.error}</span>` : ''}
     </div>
   `;
-  
+
   let filtered = results;
   if (currentFilter === 'lost') filtered = results.filter(r => r.status === 'ok' && !r.hasBuyBox);
   else if (currentFilter === 'got') filtered = results.filter(r => r.status === 'ok' && r.hasBuyBox);
-  
+
   filtered.sort((a, b) => {
     if (a.status === 'error') return 1;
     if (b.status === 'error') return -1;
     if (a.hasBuyBox !== b.hasBuyBox) return a.hasBuyBox ? 1 : -1;
     return (b.diffFromCart || 0) - (a.diffFromCart || 0);
   });
-  
+
   if (filtered.length === 0) {
     document.getElementById('list').innerHTML = '<div class="empty">該当なし</div>';
     return;
   }
-  
+
   document.getElementById('list').innerHTML = filtered.map(r => {
     if (r.status === 'error') {
       return `<div class="card error"><div class="nm">${r.sku}</div><div class="meta">⚠️ ${r.error}</div></div>`;
@@ -193,12 +314,248 @@ function render() {
 
 function setFilter(f) {
   currentFilter = f;
-  document.querySelectorAll('.fbtn').forEach(b => b.classList.toggle('active', b.dataset.f === f));
+  document.querySelectorAll('.filter .fbtn[data-f]').forEach(b => b.classList.toggle('active', b.dataset.f === f));
   render();
 }
 
 function escapeHtml(s) {
   return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ===== SKU一覧更新（Reports API → KV） =====
+async function updateSkuList() {
+  const remain = getCooldownRemain();
+  if (remain > 0) {
+    toast(`⏳ あと${formatSec(remain)}お待ちください`);
+    return;
+  }
+
+  const btn = document.getElementById('updateBtn');
+  btn.disabled = true;
+  btn.textContent = '📝 レポート生成依頼中...';
+
+  try {
+    // 1. レポート生成依頼
+    const createRes = await fetch('/api/report-create', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ reportType: 'ALL' })
+    });
+    const createData = await createRes.json();
+    if (!createData.reportId) throw new Error(createData.error || 'reportId取得失敗');
+    const reportId = createData.reportId;
+
+    // クールダウン開始（レポート生成リクエストした時点でSP-APIを消費）
+    localStorage.setItem(UPDATE_KEY, Date.now().toString());
+
+    // 2. ポーリング（30秒間隔、最大10回=5分）
+    let attempts = 0;
+    const maxAttempts = 10;
+    while (attempts < maxAttempts) {
+      attempts++;
+      btn.textContent = `⏳ 生成中... (${attempts}/${maxAttempts})`;
+      await sleep(30000);
+
+      const checkRes = await fetch(`/api/report-check?id=${encodeURIComponent(reportId)}`);
+      const checkData = await checkRes.json();
+
+      if (checkData.status === 'DONE') {
+        toast(`✅ ${checkData.count}件取得完了`);
+        break;
+      }
+      if (checkData.status === 'FAILED') {
+        throw new Error(checkData.error || 'レポート生成失敗');
+      }
+      // IN_PROGRESS なら続行
+    }
+
+    if (attempts >= maxAttempts) {
+      throw new Error('タイムアウト（5分経過）');
+    }
+  } catch (e) {
+    alert('❌ 更新失敗: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    updateCooldownDisplay();
+  }
+}
+
+// ===== クールダウン表示 =====
+function getCooldownRemain() {
+  const last = parseInt(localStorage.getItem(UPDATE_KEY) || '0', 10);
+  if (!last) return 0;
+  const elapsed = Math.floor((Date.now() - last) / 1000);
+  return Math.max(0, COOLDOWN_SEC - elapsed);
+}
+
+function formatSec(sec) {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function updateCooldownDisplay() {
+  if (cooldownTimer) clearInterval(cooldownTimer);
+  const btn = document.getElementById('updateBtn');
+
+  const tick = () => {
+    const remain = getCooldownRemain();
+    if (remain > 0) {
+      btn.textContent = `🔄 更新 (残り${formatSec(remain)})`;
+      btn.disabled = true;
+    } else {
+      btn.textContent = '🔄 SKU一覧を更新';
+      btn.disabled = false;
+      if (cooldownTimer) { clearInterval(cooldownTimer); cooldownTimer = null; }
+    }
+  };
+  tick();
+  if (getCooldownRemain() > 0) {
+    cooldownTimer = setInterval(tick, 1000);
+  }
+}
+
+// ===== SKU選択モーダル =====
+async function openSelector() {
+  document.getElementById('modal').classList.add('show');
+  selectedSkus = new Set();
+  currentChannel = 'ALL';
+  document.getElementById('searchInput').value = '';
+  document.querySelectorAll('.fbtn[data-ch]').forEach(b => b.classList.toggle('active', b.dataset.ch === 'ALL'));
+  document.getElementById('modalList').innerHTML = '<div class="loading">⏳ 読み込み中...</div>';
+
+  // 既に入力欄にあるSKUをプリセレクト
+  const existing = document.getElementById('skuInput').value.split('\n').map(s => s.trim()).filter(s => s);
+  existing.forEach(s => selectedSkus.add(s));
+
+  try {
+    const res = await fetch('/api/sku-list');
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'SKU一覧取得失敗');
+    skuData = data;
+
+    if (data.updated) {
+      const d = new Date(data.updated);
+      document.getElementById('updateInfo').style.display = 'block';
+      document.getElementById('updateInfo').textContent = `📅 最終更新: ${d.toLocaleString('ja-JP')}`;
+    }
+
+    renderSkuList();
+    updateCounter();
+  } catch (e) {
+    document.getElementById('modalList').innerHTML = `<div class="loading">❌ ${e.message}<br><br>先に「🔄 SKU一覧を更新」を実行してください</div>`;
+  }
+}
+
+function closeSelector() {
+  document.getElementById('modal').classList.remove('show');
+}
+
+function setChannel(ch) {
+  currentChannel = ch;
+  document.querySelectorAll('.fbtn[data-ch]').forEach(b => b.classList.toggle('active', b.dataset.ch === ch));
+  renderSkuList();
+}
+
+function renderSkuList() {
+  const q = document.getElementById('searchInput').value.toLowerCase().trim();
+  let items = skuData.items || [];
+
+  if (currentChannel !== 'ALL') {
+    items = items.filter(s => s.channel === currentChannel);
+  }
+  if (q) {
+    items = items.filter(s =>
+      (s.sku || '').toLowerCase().includes(q) ||
+      (s.asin || '').toLowerCase().includes(q) ||
+      (s.name || '').toLowerCase().includes(q)
+    );
+  }
+
+  document.getElementById('filterCount').textContent = `${items.length}件表示`;
+
+  if (items.length === 0) {
+    document.getElementById('modalList').innerHTML = '<div class="empty">該当なし</div>';
+    return;
+  }
+
+  const atLimit = selectedSkus.size >= MAX_SKUS;
+
+  document.getElementById('modalList').innerHTML = items.map(s => {
+    const isSelected = selectedSkus.has(s.sku);
+    const disabled = !isSelected && atLimit;
+    const name = (s.name || '(名称なし)').substring(0, 40);
+    return `
+      <label class="sku-row ${isSelected ? 'selected' : ''} ${disabled ? 'disabled' : ''}">
+        <input type="checkbox" class="sku-check"
+          ${isSelected ? 'checked' : ''} ${disabled ? 'disabled' : ''}
+          data-sku="${escapeHtml(s.sku)}" onchange="toggleSku(this)">
+        <div class="sku-body">
+          <div class="sku-top">
+            <span class="sku-code">${escapeHtml(s.sku)}</span>
+            <span class="sku-badge ${s.channel}">${s.channel === 'FBA' ? 'FBA' : '自己'}</span>
+          </div>
+          <div class="sku-name">${escapeHtml(name)}</div>
+          <div class="sku-price">¥${(s.price || 0).toLocaleString()}</div>
+        </div>
+      </label>
+    `;
+  }).join('');
+}
+
+function toggleSku(cb) {
+  const sku = cb.dataset.sku;
+  if (cb.checked) {
+    if (selectedSkus.size >= MAX_SKUS) {
+      cb.checked = false;
+      toast(`⚠️ 最大${MAX_SKUS}件までです`);
+      return;
+    }
+    selectedSkus.add(sku);
+  } else {
+    selectedSkus.delete(sku);
+  }
+  updateCounter();
+  // 上限到達時は未選択項目をdisableに（再描画）
+  const wasAtLimit = selectedSkus.size >= MAX_SKUS;
+  const prevAtLimit = document.querySelector('.sku-row.disabled') !== null;
+  if (wasAtLimit !== prevAtLimit) {
+    renderSkuList();
+  } else {
+    // 選択状態のクラスだけ更新
+    cb.closest('.sku-row').classList.toggle('selected', cb.checked);
+  }
+}
+
+function updateCounter() {
+  const counter = document.getElementById('counter');
+  counter.textContent = `${selectedSkus.size}/${MAX_SKUS}`;
+  counter.classList.toggle('warn', selectedSkus.size >= MAX_SKUS);
+}
+
+function applySelection() {
+  if (selectedSkus.size === 0) {
+    toast('⚠️ SKUを選択してください');
+    return;
+  }
+  const skus = Array.from(selectedSkus);
+  document.getElementById('skuInput').value = skus.join('\n');
+  updateInputInfo();
+  closeSelector();
+  toast(`✅ ${skus.length}件を適用`);
+}
+
+// ===== ユーティリティ =====
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function toast(msg) {
+  const existing = document.querySelector('.toast');
+  if (existing) existing.remove();
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2500);
 }
 </script>
 
