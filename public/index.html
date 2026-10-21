@@ -22,7 +22,6 @@
     .btn-secondary{background:#eee;color:#333}
     .btn-tertiary{background:#fff;color:#007aff;border:1px solid #007aff}
     .btn-danger{background:#dc3545;color:#fff}
-    .btn-warn{background:#ff9500;color:#fff}
     .btn:disabled{opacity:0.5}
     .summary{background:#fff;margin:8px;padding:10px 12px;border-radius:10px;font-size:13px;box-shadow:0 1px 3px rgba(0,0,0,0.08)}
     .sum-row{display:flex;gap:10px;flex-wrap:wrap}
@@ -54,8 +53,6 @@
     .diff.ok{color:#28a745}
     .loading{text-align:center;padding:40px;color:#666}
     .empty{text-align:center;padding:40px;color:#999;font-size:14px}
-
-    /* 価格変更UI */
     .card-head{display:flex;align-items:flex-start;gap:8px}
     .card-check{width:20px;height:20px;flex-shrink:0;margin-top:2px;accent-color:#007aff}
     .card-body{flex:1;min-width:0}
@@ -69,16 +66,12 @@
     .update-status.ok{background:#d4edda;color:#155724}
     .update-status.err{background:#f8d7da;color:#721c24}
     .update-status.pending{background:#fff3cd;color:#856404}
-
-    /* 一括変更バー */
     .bulk-bar{background:#fff;margin:8px;padding:10px;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,0.08);display:none}
     .bulk-bar.show{display:block}
     .bulk-count{font-size:13px;font-weight:700;margin-bottom:6px}
     .bulk-count .n{color:#007aff}
     .bulk-row{display:flex;gap:4px;flex-wrap:wrap}
     .bulk-row .pbtn{padding:8px 10px}
-
-    /* モーダル（SKU選択） */
     .modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:100}
     .modal-overlay.show{display:flex;flex-direction:column}
     .modal{background:#f2f2f7;width:100%;height:100%;display:flex;flex-direction:column}
@@ -108,8 +101,6 @@
     .update-info{font-size:11px;color:#666;text-align:center;padding:6px;background:#fffbe6;border-bottom:1px solid #ffe58f}
     .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;z-index:200;animation:fadein 0.2s;max-width:90%;text-align:center}
     @keyframes fadein{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
-
-    /* 確認ダイアログ */
     .dialog-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:300;align-items:center;justify-content:center;padding:20px}
     .dialog-overlay.show{display:flex}
     .dialog{background:#fff;border-radius:12px;padding:20px;max-width:360px;width:100%}
@@ -145,8 +136,6 @@
 
 <div id="result" style="display:none">
   <div class="summary" id="summary"></div>
-
-  <!-- 一括変更バー -->
   <div class="bulk-bar" id="bulkBar">
     <div class="bulk-count">☑️ 選択中: <span class="n" id="bulkCount">0</span>件 を一括値下げ</div>
     <div class="bulk-row">
@@ -157,7 +146,6 @@
       <button class="pbtn danger" onclick="clearBulkSelection()">解除</button>
     </div>
   </div>
-
   <div class="filter">
     <button class="fbtn active" data-f="all" onclick="setFilter('all')">全て</button>
     <button class="fbtn" data-f="lost" onclick="setFilter('lost')">❌喪失</button>
@@ -170,7 +158,6 @@
   👆 上にSKUを入力して「チェック」を押してください
 </div>
 
-<!-- SKU選択モーダル -->
 <div class="modal-overlay" id="modal">
   <div class="modal">
     <div class="modal-header">
@@ -200,7 +187,6 @@
   </div>
 </div>
 
-<!-- 価格変更確認ダイアログ -->
 <div class="dialog-overlay" id="dialog">
   <div class="dialog">
     <h3 id="dialogTitle">価格変更の確認</h3>
@@ -213,23 +199,20 @@
 </div>
 
 <script>
-// ===== 定数 =====
 const MAX_SKUS = 20;
 const COOLDOWN_SEC = 90;
 const UPDATE_KEY = 'lastSkuUpdate';
-const PRICE_WARN_RATIO = 0.3; // 現在価格の30%以下で警告
-const BULK_CONCURRENCY = 3; // 並列実行数（SP-APIレート制限 5req/sec 対応）
+const PRICE_WARN_RATIO = 0.3;
+const BULK_CONCURRENCY = 3;
 
-// ===== 状態 =====
 let results = [];
 let currentFilter = 'all';
 let skuData = { items: [], updated: null };
 let selectedSkus = new Set();
 let currentChannel = 'ALL';
 let cooldownTimer = null;
-let bulkSelection = new Set(); // 一括変更用の選択
+let bulkSelection = new Set();
 
-// ===== 初期化 =====
 window.addEventListener('load', () => {
   const saved = localStorage.getItem('skus');
   if (saved) {
@@ -256,11 +239,9 @@ function saveSKUs() {
   toast('💾 保存しました');
 }
 
-// ===== 価格チェック =====
 async function check() {
   const text = document.getElementById('skuInput').value.trim();
   if (!text) { alert('SKUを入力してください'); return; }
-
   const skus = text.split('\n').map(s => s.trim()).filter(s => s);
   if (skus.length > MAX_SKUS) { alert(`一度に${MAX_SKUS}件まで`); return; }
 
@@ -300,7 +281,6 @@ function render() {
     else if (r.hasBuyBox) stats.got++;
     else stats.lost++;
   });
-
   document.getElementById('summary').innerHTML = `
     <div class="sum-row">
       <span class="sum-item">全${stats.total}品</span>
@@ -309,23 +289,16 @@ function render() {
       ${stats.error > 0 ? `<span style="color:#999">⚠️エラー${stats.error}</span>` : ''}
     </div>
   `;
-
   let filtered = results;
   if (currentFilter === 'lost') filtered = results.filter(r => r.status === 'ok' && !r.hasBuyBox);
   else if (currentFilter === 'got') filtered = results.filter(r => r.status === 'ok' && r.hasBuyBox);
-
   filtered.sort((a, b) => {
     if (a.status === 'error') return 1;
     if (b.status === 'error') return -1;
     if (a.hasBuyBox !== b.hasBuyBox) return a.hasBuyBox ? 1 : -1;
     return (b.diffFromCart || 0) - (a.diffFromCart || 0);
   });
-
-  if (filtered.length === 0) {
-    document.getElementById('list').innerHTML = '<div class="empty">該当なし</div>';
-    return;
-  }
-
+  if (filtered.length === 0) { document.getElementById('list').innerHTML = '<div class="empty">該当なし</div>'; return; }
   document.getElementById('list').innerHTML = filtered.map(r => renderCard(r)).join('');
 }
 
@@ -344,13 +317,10 @@ function renderCard(r) {
   }
   const isBulkSelected = bulkSelection.has(r.sku);
   const hasCart = r.cartPrice && r.cartPrice > 0;
-
   return `
     <div class="card ${statusClass}" data-sku="${escapeHtml(r.sku)}">
       <div class="card-head">
-        <input type="checkbox" class="card-check"
-          ${isBulkSelected ? 'checked' : ''}
-          onchange="toggleBulk('${escapeHtml(r.sku)}', this)">
+        <input type="checkbox" class="card-check" ${isBulkSelected ? 'checked' : ''} onchange="toggleBulk('${escapeHtml(r.sku)}', this)">
         <div class="card-body">
           <div class="nm">${escapeHtml(r.name || '(名称なし)')}</div>
           <div class="meta">SKU:${escapeHtml(r.sku)} / 競合:${r.competitorCount}名</div>
@@ -385,27 +355,19 @@ function setFilter(f) {
   render();
 }
 
-// ===== 価格変更（単品） =====
 function askPriceChange(sku, option) {
   const r = results.find(x => x.sku === sku);
   if (!r) { toast('⚠️ 対象SKUが見つかりません'); return; }
-
   const current = r.myPrice || 0;
   let newPrice = 0;
   let label = '';
-
   if (option === -50) { newPrice = current - 50; label = '-50円'; }
   else if (option === -100) { newPrice = current - 100; label = '-100円'; }
   else if (option === 'cart') {
     if (!r.cartPrice) { toast('⚠️ カート価格が取得できていません'); return; }
-    newPrice = r.cartPrice;
-    label = 'カート価格に合わせる';
+    newPrice = r.cartPrice; label = 'カート価格に合わせる';
   }
-  else if (option === 'custom') {
-    showCustomPriceDialog(sku, current);
-    return;
-  }
-
+  else if (option === 'custom') { showCustomPriceDialog(sku, current); return; }
   showPriceConfirmDialog([{ sku, oldPrice: current, newPrice, name: r.name }], label);
 }
 
@@ -420,7 +382,7 @@ function showCustomPriceDialog(sku, current) {
   document.getElementById('dialogConfirm').textContent = '確認';
   document.getElementById('dialogConfirm').onclick = () => {
     const v = parseInt(document.getElementById('customPriceInput').value, 10);
-    if (!v || v <= 0) { toast('⚠️ 正しい価格を入力してください'); return; }
+    if (!v || v <= 0) { toast('⚠️ 正しい価格を入力'); return; }
     closeDialog();
     showPriceConfirmDialog([{ sku, oldPrice: current, newPrice: v, name: r.name }], `¥${v.toLocaleString()}`);
   };
@@ -429,28 +391,17 @@ function showCustomPriceDialog(sku, current) {
 }
 
 function showPriceConfirmDialog(items, label) {
-  // バリデーション: 30%以下警告
   const warns = items.filter(x => x.newPrice < x.oldPrice * PRICE_WARN_RATIO);
   const invalids = items.filter(x => x.newPrice <= 0);
-
-  if (invalids.length > 0) {
-    toast(`⚠️ ${invalids.length}件が0円以下になります。中止しました`);
-    return;
-  }
-
+  if (invalids.length > 0) { toast(`⚠️ ${invalids.length}件が0円以下。中止`); return; }
   const isBulk = items.length > 1;
   document.getElementById('dialogTitle').textContent = isBulk ? `一括価格変更 (${items.length}件)` : '価格変更の確認';
-
   let html = '';
   if (isBulk) {
     html = `
       <div>変更内容: <strong>${escapeHtml(label)}</strong></div>
       <div style="max-height:200px;overflow-y:auto;margin:10px 0;font-size:12px">
-        ${items.map(x => `
-          <div style="padding:4px 0;border-bottom:1px solid #eee">
-            ${escapeHtml(x.sku)}: ¥${x.oldPrice.toLocaleString()} → <strong style="color:#dc3545">¥${x.newPrice.toLocaleString()}</strong>
-          </div>
-        `).join('')}
+        ${items.map(x => `<div style="padding:4px 0;border-bottom:1px solid #eee">${escapeHtml(x.sku)}: ¥${x.oldPrice.toLocaleString()} → <strong style="color:#dc3545">¥${x.newPrice.toLocaleString()}</strong></div>`).join('')}
       </div>
     `;
   } else {
@@ -464,34 +415,20 @@ function showPriceConfirmDialog(items, label) {
       </div>
     `;
   }
-
-  if (warns.length > 0) {
-    html += `<div class="dialog-warn">⚠️ ${warns.length}件が現在価格の30%以下になります。本当に実行しますか？</div>`;
-  }
-
+  if (warns.length > 0) html += `<div class="dialog-warn">⚠️ ${warns.length}件が現在価格の30%以下。本当に実行しますか？</div>`;
   document.getElementById('dialogBody').innerHTML = html;
   document.getElementById('dialogConfirm').textContent = '実行';
-  document.getElementById('dialogConfirm').onclick = async () => {
-    closeDialog();
-    await executePriceChange(items);
-  };
+  document.getElementById('dialogConfirm').onclick = async () => { closeDialog(); await executePriceChange(items); };
   openDialog();
 }
 
 async function executePriceChange(items) {
-  // UI: 各カードを updating 状態に
   items.forEach(x => {
     const card = document.querySelector(`.card[data-sku="${CSS.escape(x.sku)}"]`);
     if (card) card.classList.add('updating');
     const st = document.getElementById(`status-${x.sku}`);
-    if (st) {
-      st.style.display = 'block';
-      st.className = 'update-status pending';
-      st.textContent = '⏳ 変更中...';
-    }
+    if (st) { st.style.display = 'block'; st.className = 'update-status pending'; st.textContent = '⏳ 変更中...'; }
   });
-
-  // 並列実行（BULK_CONCURRENCY）
   const queue = [...items];
   const results2 = [];
   const workers = Array(Math.min(BULK_CONCURRENCY, queue.length)).fill(null).map(async () => {
@@ -505,46 +442,28 @@ async function executePriceChange(items) {
         });
         const data = await res.json();
         results2.push({ ...x, ...data });
-
         const st = document.getElementById(`status-${x.sku}`);
         if (st) {
-          if (data.ok) {
-            st.className = 'update-status ok';
-            st.textContent = `✅ 変更受付 (¥${x.newPrice.toLocaleString()})`;
-          } else {
-            st.className = 'update-status err';
-            st.textContent = `❌ ${(data.error || 'エラー').substring(0, 60)}`;
-          }
+          if (data.ok) { st.className = 'update-status ok'; st.textContent = `✅ 変更受付 (¥${x.newPrice.toLocaleString()})`; }
+          else { st.className = 'update-status err'; st.textContent = `❌ ${(data.error || 'エラー').substring(0, 60)}`; }
         }
       } catch (e) {
         results2.push({ ...x, ok: false, error: e.message });
         const st = document.getElementById(`status-${x.sku}`);
-        if (st) {
-          st.className = 'update-status err';
-          st.textContent = `❌ ${e.message}`;
-        }
+        if (st) { st.className = 'update-status err'; st.textContent = `❌ ${e.message}`; }
       }
     }
   });
   await Promise.all(workers);
-
-  // updating 解除
   items.forEach(x => {
     const card = document.querySelector(`.card[data-sku="${CSS.escape(x.sku)}"]`);
     if (card) card.classList.remove('updating');
   });
-
   const okCount = results2.filter(r => r.ok).length;
   const errCount = results2.length - okCount;
   toast(`完了: ✅${okCount}件 ❌${errCount}件`);
-
-  // 成功したSKUだけ再チェック（反映に時間がかかるため5秒待機）
   const okSkus = results2.filter(r => r.ok).map(r => r.sku);
-  if (okSkus.length > 0) {
-    setTimeout(() => recheckSkus(okSkus), 5000);
-  }
-
-  // 一括選択解除
+  if (okSkus.length > 0) setTimeout(() => recheckSkus(okSkus), 5000);
   bulkSelection.clear();
   updateBulkBar();
 }
@@ -558,20 +477,15 @@ async function recheckSkus(skus) {
     });
     const data = await res.json();
     if (data.error) return;
-
-    // results をマージ更新
     data.forEach(newR => {
       const idx = results.findIndex(r => r.sku === newR.sku);
       if (idx >= 0) results[idx] = newR;
     });
     render();
     toast('🔄 再チェック完了');
-  } catch (e) {
-    toast('⚠️ 再チェック失敗: ' + e.message);
-  }
+  } catch (e) { toast('⚠️ 再チェック失敗: ' + e.message); }
 }
 
-// ===== 一括変更 =====
 function toggleBulk(sku, cb) {
   if (cb.checked) bulkSelection.add(sku);
   else bulkSelection.delete(sku);
@@ -594,8 +508,7 @@ function clearBulkSelection() {
 function bulkPriceChange(option) {
   if (bulkSelection.size === 0) { toast('⚠️ SKUを選択してください'); return; }
   const targets = Array.from(bulkSelection).map(sku => results.find(r => r.sku === sku)).filter(r => r && r.status === 'ok');
-  if (targets.length === 0) { toast('⚠️ 有効なSKUがありません'); return; }
-
+  if (targets.length === 0) { toast('⚠️ 有効なSKUなし'); return; }
   if (option === 'custom') {
     document.getElementById('dialogTitle').textContent = '一括任意価格入力';
     document.getElementById('dialogBody').innerHTML = `
@@ -614,47 +527,38 @@ function bulkPriceChange(option) {
     setTimeout(() => document.getElementById('customBulkInput').focus(), 100);
     return;
   }
-
   let items = [];
   let label = '';
   if (option === -50) { items = targets.map(r => ({ sku: r.sku, oldPrice: r.myPrice, newPrice: r.myPrice - 50, name: r.name })); label = '-50円'; }
   else if (option === -100) { items = targets.map(r => ({ sku: r.sku, oldPrice: r.myPrice, newPrice: r.myPrice - 100, name: r.name })); label = '-100円'; }
   else if (option === 'cart') {
     const withCart = targets.filter(r => r.cartPrice);
-    if (withCart.length === 0) { toast('⚠️ カート価格が取得できている商品がありません'); return; }
+    if (withCart.length === 0) { toast('⚠️ カート価格取得済み商品なし'); return; }
     items = withCart.map(r => ({ sku: r.sku, oldPrice: r.myPrice, newPrice: r.cartPrice, name: r.name }));
     label = 'カート価格に合わせる';
-    if (withCart.length < targets.length) toast(`⚠️ カート価格不明の${targets.length - withCart.length}件はスキップ`);
+    if (withCart.length < targets.length) toast(`⚠️ カート不明の${targets.length - withCart.length}件はスキップ`);
   }
-
   showPriceConfirmDialog(items, label);
 }
 
-// ===== 確認ダイアログ =====
 function openDialog() { document.getElementById('dialog').classList.add('show'); }
 function closeDialog() { document.getElementById('dialog').classList.remove('show'); }
 
-// ===== SKU一覧更新 =====
 async function updateSkuList() {
   const remain = getCooldownRemain();
   if (remain > 0) { toast(`⏳ あと${formatSec(remain)}お待ちください`); return; }
-
   const btn = document.getElementById('updateBtn');
   btn.disabled = true;
   btn.textContent = '📝 レポート生成依頼中...';
-
   try {
     const createRes = await fetch('/api/report-create', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ reportType: 'ALL' })
     });
     const createData = await createRes.json();
     if (!createData.reportId) throw new Error(createData.error || 'reportId取得失敗');
     const reportId = createData.reportId;
-
     localStorage.setItem(UPDATE_KEY, Date.now().toString());
-
     let attempts = 0;
     const maxAttempts = 10;
     while (attempts < maxAttempts) {
@@ -667,12 +571,8 @@ async function updateSkuList() {
       if (checkData.status === 'FAILED') throw new Error(checkData.error || 'レポート生成失敗');
     }
     if (attempts >= maxAttempts) throw new Error('タイムアウト（5分経過）');
-  } catch (e) {
-    alert('❌ 更新失敗: ' + e.message);
-  } finally {
-    btn.disabled = false;
-    updateCooldownDisplay();
-  }
+  } catch (e) { alert('❌ 更新失敗: ' + e.message); }
+  finally { btn.disabled = false; updateCooldownDisplay(); }
 }
 
 function getCooldownRemain() {
@@ -681,11 +581,7 @@ function getCooldownRemain() {
   return Math.max(0, COOLDOWN_SEC - Math.floor((Date.now() - last) / 1000));
 }
 
-function formatSec(sec) {
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
+function formatSec(sec) { const m = Math.floor(sec / 60); const s = sec % 60; return `${m}:${s.toString().padStart(2, '0')}`; }
 
 function updateCooldownDisplay() {
   if (cooldownTimer) clearInterval(cooldownTimer);
@@ -694,8 +590,7 @@ function updateCooldownDisplay() {
     const remain = getCooldownRemain();
     if (remain > 0) { btn.textContent = `🔄 更新 (残り${formatSec(remain)})`; btn.disabled = true; }
     else {
-      btn.textContent = '🔄 SKU一覧を更新';
-      btn.disabled = false;
+      btn.textContent = '🔄 SKU一覧を更新'; btn.disabled = false;
       if (cooldownTimer) { clearInterval(cooldownTimer); cooldownTimer = null; }
     }
   };
@@ -703,7 +598,6 @@ function updateCooldownDisplay() {
   if (getCooldownRemain() > 0) cooldownTimer = setInterval(tick, 1000);
 }
 
-// ===== SKU選択モーダル =====
 async function openSelector() {
   document.getElementById('modal').classList.add('show');
   selectedSkus = new Set();
@@ -711,10 +605,8 @@ async function openSelector() {
   document.getElementById('searchInput').value = '';
   document.querySelectorAll('.fbtn[data-ch]').forEach(b => b.classList.toggle('active', b.dataset.ch === 'ALL'));
   document.getElementById('modalList').innerHTML = '<div class="loading">⏳ 読み込み中...</div>';
-
   const existing = document.getElementById('skuInput').value.split('\n').map(s => s.trim()).filter(s => s);
   existing.forEach(s => selectedSkus.add(s));
-
   try {
     const res = await fetch('/api/sku-list');
     const data = await res.json();
@@ -750,19 +642,15 @@ function renderSkuList() {
     (s.name || '').toLowerCase().includes(q)
   );
   document.getElementById('filterCount').textContent = `${items.length}件表示`;
-
   if (items.length === 0) { document.getElementById('modalList').innerHTML = '<div class="empty">該当なし</div>'; return; }
   const atLimit = selectedSkus.size >= MAX_SKUS;
-
   document.getElementById('modalList').innerHTML = items.map(s => {
     const isSelected = selectedSkus.has(s.sku);
     const disabled = !isSelected && atLimit;
     const name = (s.name || '(名称なし)').substring(0, 40);
     return `
       <label class="sku-row ${isSelected ? 'selected' : ''} ${disabled ? 'disabled' : ''}">
-        <input type="checkbox" class="sku-check"
-          ${isSelected ? 'checked' : ''} ${disabled ? 'disabled' : ''}
-          data-sku="${escapeHtml(s.sku)}" onchange="toggleSku(this)">
+        <input type="checkbox" class="sku-check" ${isSelected ? 'checked' : ''} ${disabled ? 'disabled' : ''} data-sku="${escapeHtml(s.sku)}" onchange="toggleSku(this)">
         <div class="sku-body">
           <div class="sku-top">
             <span class="sku-code">${escapeHtml(s.sku)}</span>
@@ -801,7 +689,6 @@ function applySelection() {
   toast(`✅ ${skus.length}件を適用`);
 }
 
-// ===== ユーティリティ =====
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function escapeHtml(s) { return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function toast(msg) {
