@@ -204,6 +204,7 @@
         <button class="fbtn" data-ch="FBA" onclick="setChannel('FBA')">FBA</button>
         <button class="fbtn" data-ch="FBM" onclick="setChannel('FBM')">自己発送</button>
       </div>
+    <!-- Output: html -->
       <div class="sort-row">
         <span>並び順:</span>
         <select class="sort-select" id="sortSelect" onchange="renderSkuList()">
@@ -213,6 +214,10 @@
           <option value="stockDesc">在庫数 多い順</option>
         </select>
       </div>
+      <label class="stock-filter">
+        <input type="checkbox" id="hideZeroStock" onchange="renderSkuList()">
+        <span>📦 在庫0を除外</span>
+      </label>
     </div>
     <div class="modal-list" id="modalList">
       <div class="loading">⏳ 読み込み中...</div>
