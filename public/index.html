@@ -94,6 +94,8 @@
     .modal-counter{font-size:12px;color:#666;margin:8px 0 6px;display:flex;justify-content:space-between;align-items:center}
     .counter-val{font-weight:700;color:#007aff}
     .counter-val.warn{color:#dc3545}
+    .sort-row{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12px;color:#666}
+    .sort-select{flex:1;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;background:#fff;color:#333}
     .modal-list{flex:1;overflow-y:auto;padding:8px;-webkit-overflow-scrolling:touch}
     .sku-row{background:#fff;border-radius:10px;padding:10px;margin-bottom:6px;display:flex;align-items:center;gap:10px;box-shadow:0 1px 3px rgba(0,0,0,0.08)}
     .sku-row.selected{background:#e3f2fd;border:1px solid #007aff}
@@ -106,7 +108,10 @@
     .sku-badge.FBA{background:#007aff;color:#fff}
     .sku-badge.FBM{background:#28a745;color:#fff}
     .sku-name{font-size:12px;color:#333;line-height:1.3;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical}
-    .sku-price{font-size:11px;color:#666}
+    .sku-meta{font-size:11px;color:#666;display:flex;gap:8px;flex-wrap:wrap}
+    .sku-meta .mi{display:inline-flex;align-items:center;gap:2px}
+    .sku-meta .mi-stock.zero{color:#dc3545}
+    .sku-meta .mi-date{color:#999}
     .modal-footer{background:#fff;padding:10px 12px;border-top:1px solid #ddd;display:flex;gap:8px}
     .modal-footer .btn{flex:1}
     .update-info{font-size:11px;color:#666;text-align:center;padding:6px;background:#fffbe6;border-bottom:1px solid #ffe58f}
@@ -199,6 +204,15 @@
         <button class="fbtn" data-ch="FBA" onclick="setChannel('FBA')">FBA</button>
         <button class="fbtn" data-ch="FBM" onclick="setChannel('FBM')">自己発送</button>
       </div>
+      <div class="sort-row">
+        <span>並び順:</span>
+        <select class="sort-select" id="sortSelect" onchange="renderSkuList()">
+          <option value="sku">SKU順</option>
+          <option value="dateDesc">出品日 新しい順</option>
+          <option value="dateAsc">出品日 古い順</option>
+          <option value="stockDesc">在庫数 多い順</option>
+        </select>
+      </div>
     </div>
     <div class="modal-list" id="modalList">
       <div class="loading">⏳ 読み込み中...</div>
@@ -237,18 +251,17 @@
 </div>
 
 <script>
-// ===== 定数 =====
 const MAX_SKUS = 20;
 const COOLDOWN_SEC = 90;
 const UPDATE_KEY = 'lastSkuUpdate';
 const PRICE_WARN_RATIO = 0.3;
 const BULK_CONCURRENCY = 3;
-const RECHECK_DELAY_MS = 5 * 60 * 1000; // 5分
-const LATE_THRESHOLD_MS = 5 * 60 * 1000; // 5分経過で遅延マーク
+const RECHECK_DELAY_MS = 5 * 60 * 1000;
+const LATE_THRESHOLD_MS = 5 * 60 * 1000;
 const HISTORY_KEY = 'priceHistory';
 const HISTORY_MAX = 50;
+const SORT_KEY = 'skuSortMode';
 
-// ===== 状態 =====
 let results = [];
 let currentFilter = 'all';
 let skuData = { items: [], updated: null };
@@ -256,10 +269,9 @@ let selectedSkus = new Set();
 let currentChannel = 'ALL';
 let cooldownTimer = null;
 let bulkSelection = new Set();
-let pendingSkus = new Map(); // sku → {targetPrice, requestedAt, timerId}
+let pendingSkus = new Map();
 let pendingTick = null;
 
-// ===== 初期化 =====
 window.addEventListener('load', () => {
   const saved = localStorage.getItem('skus');
   if (saved) {
@@ -268,7 +280,6 @@ window.addEventListener('load', () => {
   }
   updateCooldownDisplay();
   document.getElementById('skuInput').addEventListener('input', updateInputInfo);
-  // タブ復帰時に遅延チェック
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) checkPendingTimers();
   });
@@ -290,7 +301,6 @@ function saveSKUs() {
   toast('💾 保存しました');
 }
 
-// ===== 価格チェック =====
 async function check() {
   const text = document.getElementById('skuInput').value.trim();
   if (!text) { alert('SKUを入力してください'); return; }
@@ -316,7 +326,6 @@ async function check() {
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     results = data;
-    // 既存の pendingSku があれば反映判定
     checkPendingAgainstResults();
     render();
   } catch (e) {
@@ -374,7 +383,6 @@ function renderCard(r) {
   const pending = pendingSkus.get(r.sku);
   const lastHistory = getLastHistoryForSku(r.sku);
 
-  // 反映待ちバッジ
   let pendingBadge = '';
   if (pending) {
     const elapsed = Date.now() - pending.requestedAt;
@@ -382,7 +390,6 @@ function renderCard(r) {
     pendingBadge = `<span class="pending-badge ${isLate ? 'late' : ''}">${isLate ? '⚠ 反映遅延' : '⏱ 反映待ち'} (¥${pending.targetPrice.toLocaleString()})</span>`;
   }
 
-  // 履歴メモ
   let historyNote = '';
   if (lastHistory) {
     const ago = formatAgo(Date.now() - lastHistory.at);
@@ -432,7 +439,6 @@ function setFilter(f) {
   render();
 }
 
-// ===== 価格変更 =====
 function askPriceChange(sku, option) {
   const r = results.find(x => x.sku === sku);
   if (!r) { toast('⚠️ 対象SKUが見つかりません'); return; }
@@ -504,7 +510,6 @@ async function executePriceChange(items) {
   const total = items.length;
   let done = 0, okCount = 0, errCount = 0;
 
-  // 進捗バー表示
   const pb = document.getElementById('progressBar');
   pb.classList.remove('done');
   pb.classList.add('show');
@@ -533,9 +538,7 @@ async function executePriceChange(items) {
         done++;
         if (data.ok) {
           okCount++;
-          // 履歴追加
           addHistory({ at: Date.now(), sku: x.sku, oldPrice: x.oldPrice, newPrice: x.newPrice, name: x.name, ok: true, submissionId: data.submissionId });
-          // 反映待ち登録
           registerPending(x.sku, x.newPrice);
         } else {
           errCount++;
@@ -563,7 +566,6 @@ async function executePriceChange(items) {
     if (card) card.classList.remove('updating');
   });
 
-  // 完了表示→3秒で消す
   pb.classList.add('done');
   pb.textContent = `✅ 完了: ${okCount}件成功 / ${errCount}件失敗`;
   setTimeout(() => pb.classList.remove('show'), 3000);
@@ -571,45 +573,26 @@ async function executePriceChange(items) {
   toast(`完了: ✅${okCount}件 ❌${errCount}件`);
   bulkSelection.clear();
   updateBulkBar();
-  render(); // 反映待ちバッジ・履歴メモ即反映
+  render();
 }
 
-// ===== 反映待ち管理 =====
 function registerPending(sku, targetPrice) {
-  // 既存タイマークリア
   const existing = pendingSkus.get(sku);
   if (existing && existing.timerId) clearTimeout(existing.timerId);
-
-  const timerId = setTimeout(() => {
-    autoRecheckPending(sku);
-  }, RECHECK_DELAY_MS);
-
-  pendingSkus.set(sku, {
-    targetPrice,
-    requestedAt: Date.now(),
-    timerId,
-  });
-
-  // 遅延バッジ更新用のtickを開始
+  const timerId = setTimeout(() => { autoRecheckPending(sku); }, RECHECK_DELAY_MS);
+  pendingSkus.set(sku, { targetPrice, requestedAt: Date.now(), timerId });
   startPendingTick();
 }
 
 function startPendingTick() {
   if (pendingTick) return;
   pendingTick = setInterval(() => {
-    if (pendingSkus.size === 0) {
-      clearInterval(pendingTick); pendingTick = null; return;
-    }
-    // 遅延マーク（5分経過）があるものだけ再描画
+    if (pendingSkus.size === 0) { clearInterval(pendingTick); pendingTick = null; return; }
     const now = Date.now();
     let hasChange = false;
     pendingSkus.forEach((p, sku) => {
       const elapsed = now - p.requestedAt;
-      // 5分 ± 10秒 の範囲で1回だけ再描画トリガー
-      if (!p.lateMarked && elapsed > LATE_THRESHOLD_MS) {
-        p.lateMarked = true;
-        hasChange = true;
-      }
+      if (!p.lateMarked && elapsed > LATE_THRESHOLD_MS) { p.lateMarked = true; hasChange = true; }
     });
     if (hasChange) render();
   }, 10000);
@@ -618,11 +601,7 @@ function startPendingTick() {
 async function autoRecheckPending(sku) {
   const pending = pendingSkus.get(sku);
   if (!pending) return;
-  if (!results.find(r => r.sku === sku)) {
-    // 結果リストから消えていたらスキップ（別SKUをチェック中）
-    pendingSkus.delete(sku);
-    return;
-  }
+  if (!results.find(r => r.sku === sku)) { pendingSkus.delete(sku); return; }
   try {
     const res = await fetch('/api/check', {
       method: 'POST',
@@ -634,12 +613,10 @@ async function autoRecheckPending(sku) {
     if (data[0]) {
       const idx = results.findIndex(r => r.sku === sku);
       if (idx >= 0) results[idx] = data[0];
-      // 反映判定
       if (data[0].myPrice === pending.targetPrice) {
         pendingSkus.delete(sku);
         toast(`✅ ${sku} 反映確認`);
       } else {
-        // まだ反映されていない → pendingは残す（late判定で表示）
         toast(`⏳ ${sku} まだ反映されていません`);
       }
       render();
@@ -656,7 +633,6 @@ async function manualRecheck(sku) {
 }
 
 function checkPendingAgainstResults() {
-  // check()で全件取り直した時に、pendingSkusと照合
   let settled = 0;
   pendingSkus.forEach((p, sku) => {
     const r = results.find(x => x.sku === sku);
@@ -670,12 +646,10 @@ function checkPendingAgainstResults() {
 }
 
 function checkPendingTimers() {
-  // タブ復帰時: setTimeoutが遅延していないかチェック
   const now = Date.now();
   pendingSkus.forEach((p, sku) => {
     const elapsed = now - p.requestedAt;
     if (elapsed > RECHECK_DELAY_MS + 10000) {
-      // タイマーが実行されずに5分+10秒経過 → 手動で再チェック実行
       if (p.timerId) clearTimeout(p.timerId);
       p.timerId = null;
       autoRecheckPending(sku);
@@ -683,7 +657,6 @@ function checkPendingTimers() {
   });
 }
 
-// ===== 変更履歴 =====
 function addHistory(entry) {
   const list = loadHistory();
   list.unshift(entry);
@@ -692,10 +665,7 @@ function addHistory(entry) {
 }
 
 function loadHistory() {
-  try {
-    const raw = localStorage.getItem(HISTORY_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
+  try { const raw = localStorage.getItem(HISTORY_KEY); return raw ? JSON.parse(raw) : []; } catch { return []; }
 }
 
 function getLastHistoryForSku(sku) {
@@ -703,14 +673,8 @@ function getLastHistoryForSku(sku) {
   return list.find(h => h.sku === sku && h.ok) || null;
 }
 
-function openHistory() {
-  document.getElementById('historyModal').classList.add('show');
-  renderHistory();
-}
-
-function closeHistory() {
-  document.getElementById('historyModal').classList.remove('show');
-}
+function openHistory() { document.getElementById('historyModal').classList.add('show'); renderHistory(); }
+function closeHistory() { document.getElementById('historyModal').classList.remove('show'); }
 
 function clearHistory() {
   if (!confirm('履歴を全削除しますか？')) return;
@@ -722,10 +686,7 @@ function clearHistory() {
 function renderHistory() {
   const list = loadHistory();
   const container = document.getElementById('historyList');
-  if (list.length === 0) {
-    container.innerHTML = '<div class="empty">履歴がありません</div>';
-    return;
-  }
+  if (list.length === 0) { container.innerHTML = '<div class="empty">履歴がありません</div>'; return; }
   container.innerHTML = list.map(h => {
     const d = new Date(h.at);
     const timeStr = `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
@@ -756,7 +717,6 @@ function formatAgo(ms) {
   return `${day}日前`;
 }
 
-// ===== 一括変更 =====
 function toggleBulk(sku, cb) {
   if (cb.checked) bulkSelection.add(sku);
   else bulkSelection.delete(sku);
@@ -815,7 +775,6 @@ function bulkPriceChange(option) {
 function openDialog() { document.getElementById('dialog').classList.add('show'); }
 function closeDialog() { document.getElementById('dialog').classList.remove('show'); }
 
-// ===== SKU一覧更新 =====
 async function updateSkuList() {
   const remain = getCooldownRemain();
   if (remain > 0) { toast(`⏳ あと${formatSec(remain)}お待ちください`); return; }
@@ -870,13 +829,17 @@ function updateCooldownDisplay() {
   if (getCooldownRemain() > 0) cooldownTimer = setInterval(tick, 1000);
 }
 
-// ===== SKU選択モーダル =====
 async function openSelector() {
   document.getElementById('modal').classList.add('show');
   selectedSkus = new Set();
   currentChannel = 'ALL';
   document.getElementById('searchInput').value = '';
   document.querySelectorAll('.fbtn[data-ch]').forEach(b => b.classList.toggle('active', b.dataset.ch === 'ALL'));
+
+  // 保存済みソートモードを復元
+  const savedSort = localStorage.getItem(SORT_KEY) || 'sku';
+  document.getElementById('sortSelect').value = savedSort;
+
   document.getElementById('modalList').innerHTML = '<div class="loading">⏳ 読み込み中...</div>';
   const existing = document.getElementById('skuInput').value.split('\n').map(s => s.trim()).filter(s => s);
   existing.forEach(s => selectedSkus.add(s));
@@ -907,13 +870,44 @@ function setChannel(ch) {
 
 function renderSkuList() {
   const q = document.getElementById('searchInput').value.toLowerCase().trim();
-  let items = skuData.items || [];
+  const sortMode = document.getElementById('sortSelect').value;
+  localStorage.setItem(SORT_KEY, sortMode);
+
+  let items = (skuData.items || []).slice(); // 元配列を変更しないようコピー
+
   if (currentChannel !== 'ALL') items = items.filter(s => s.channel === currentChannel);
   if (q) items = items.filter(s =>
     (s.sku || '').toLowerCase().includes(q) ||
     (s.asin || '').toLowerCase().includes(q) ||
     (s.name || '').toLowerCase().includes(q)
   );
+
+  // ソート処理
+  items.sort((a, b) => {
+    if (sortMode === 'dateDesc') {
+      // 新しい順（openDateが新しいものが上）、nullは最後
+      if (!a.openDate && !b.openDate) return 0;
+      if (!a.openDate) return 1;
+      if (!b.openDate) return -1;
+      return b.openDate.localeCompare(a.openDate);
+    }
+    if (sortMode === 'dateAsc') {
+      // 古い順
+      if (!a.openDate && !b.openDate) return 0;
+      if (!a.openDate) return 1;
+      if (!b.openDate) return -1;
+      return a.openDate.localeCompare(b.openDate);
+    }
+    if (sortMode === 'stockDesc') {
+      // 在庫数 多い順。同数ならSKU昇順
+      const diff = (b.quantity || 0) - (a.quantity || 0);
+      if (diff !== 0) return diff;
+      return (a.sku || '').localeCompare(b.sku || '');
+    }
+    // default: SKU順
+    return (a.sku || '').localeCompare(b.sku || '');
+  });
+
   document.getElementById('filterCount').textContent = `${items.length}件表示`;
   if (items.length === 0) { document.getElementById('modalList').innerHTML = '<div class="empty">該当なし</div>'; return; }
   const atLimit = selectedSkus.size >= MAX_SKUS;
@@ -921,6 +915,8 @@ function renderSkuList() {
     const isSelected = selectedSkus.has(s.sku);
     const disabled = !isSelected && atLimit;
     const name = (s.name || '(名称なし)').substring(0, 40);
+    const dateStr = formatOpenDate(s.openDate);
+    const stockClass = (s.quantity || 0) === 0 ? 'zero' : '';
     return `
       <label class="sku-row ${isSelected ? 'selected' : ''} ${disabled ? 'disabled' : ''}">
         <input type="checkbox" class="sku-check" ${isSelected ? 'checked' : ''} ${disabled ? 'disabled' : ''} data-sku="${escapeHtml(s.sku)}" onchange="toggleSku(this)">
@@ -930,11 +926,27 @@ function renderSkuList() {
             <span class="sku-badge ${s.channel}">${s.channel === 'FBA' ? 'FBA' : '自己'}</span>
           </div>
           <div class="sku-name">${escapeHtml(name)}</div>
-          <div class="sku-price">¥${(s.price || 0).toLocaleString()}</div>
+          <div class="sku-meta">
+            <span class="mi">¥${(s.price || 0).toLocaleString()}</span>
+            <span class="mi mi-stock ${stockClass}">📦 ${s.quantity || 0}</span>
+            ${dateStr ? `<span class="mi mi-date">📅 ${dateStr}</span>` : ''}
+          </div>
         </div>
       </label>
     `;
   }).join('');
+}
+
+function formatOpenDate(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    const yy = String(d.getFullYear()).slice(2);
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yy}/${mm}/${dd}`;
+  } catch { return ''; }
 }
 
 function toggleSku(cb) {
@@ -962,7 +974,6 @@ function applySelection() {
   toast(`✅ ${skus.length}件を適用`);
 }
 
-// ===== ユーティリティ =====
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function escapeHtml(s) { return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function toast(msg) {
