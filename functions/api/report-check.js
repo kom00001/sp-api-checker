@@ -1,3 +1,4 @@
+// File: functions/api/report-check.js
 export async function onRequestGet({ request, env }) {
   try {
     const url = new URL(request.url);
@@ -114,6 +115,7 @@ function parseReport(text) {
     stockQty: find('在庫数', 'afn-fulfillable-quantity'),
     channel: find('フルフィルメント・チャンネル', 'fulfillment-channel'),
     status: find('ステータス', 'status'),
+    openDate: find('出品日', 'open-date', 'listing-creation-date'), // ★追加
   };
 
   const skipped = { notActive: 0, noSku: 0, noAsin: 0 };
@@ -151,6 +153,10 @@ function parseReport(text) {
     const priceStr = idx.price >= 0 ? cols[idx.price] : '0';
     const price = parseFloat(priceStr || '0') || 0;
 
+    // ★ openDate のパース（例: "2024-03-15 10:30:00 PDT" / "2024-03-15" 等の多様な形式に対応）
+    const openDateRaw = idx.openDate >= 0 ? cols[idx.openDate] : '';
+    const openDate = normalizeDate(openDateRaw);
+
     skus.push({
       sku,
       asin,
@@ -158,6 +164,7 @@ function parseReport(text) {
       price,
       quantity,
       channel,
+      openDate, // ★追加
     });
   }
 
@@ -168,8 +175,20 @@ function parseReport(text) {
       skipped,
       headers,
       idx,
+      sampleOpenDates: skus.slice(0, 3).map(s => ({ sku: s.sku, openDate: s.openDate })),
     },
   };
+}
+
+// 日付文字列を ISO 8601 風の文字列に正規化（ソート可能な形式）
+function normalizeDate(raw) {
+  if (!raw) return null;
+  // タイムゾーン文字列（PDT, JST等）を除去
+  const cleaned = raw.replace(/\s*(PDT|PST|JST|UTC|GMT)\s*$/, '').trim();
+  // "2024-03-15" / "2024-03-15 10:30:00" / "2024/03/15" 等を解釈
+  const d = new Date(cleaned.replace(/\//g, '-'));
+  if (isNaN(d.getTime())) return raw; // パース失敗時は元の文字列を保持（後続のソートで文字列比較）
+  return d.toISOString();
 }
 
 function summarize(skus) {
