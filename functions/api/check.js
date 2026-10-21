@@ -1,190 +1,118 @@
-export async function onRequestGet({ request, env }) {
+// File: functions/api/check.js
+
+export async function onRequestPost({ request, env }) {
   try {
-    const url = new URL(request.url);
-    const reportId = url.searchParams.get('id');
-    if (!reportId) return json({ error: 'id parameter required' }, 400);
+    const { skus } = await request.json();
+    
+    // バリデーション
+    if (!Array.isArray(skus) || skus.length === 0) {
+      return json({ error: 'SKUリストが空です' }, 400);
+    }
+    if (skus.length > 20) {
+      return json({ error: '一度にチェックできるのは20件までです' }, 400);
+    }
 
+    // 1. Amazon Access Tokenを取得
     const token = await getAccessToken(env);
-    const base = 'https://sellingpartnerapi-fe.amazon.com/reports/2021-06-30';
-    const h = { headers: { 'x-amz-access-token': token } };
+    const results = [];
 
-    // レポート状態確認
-    const statusRes = await fetch(`${base}/reports/${reportId}`, h);
-    if (!statusRes.ok) {
-      const errText = await statusRes.text();
-      return json({ status: 'FAILED', error: `Status check ${statusRes.status}: ${errText.substring(0, 200)}` }, 500);
-    }
-    const statusData = await statusRes.json();
-    const processingStatus = statusData.processingStatus;
-
-    if (processingStatus === 'IN_QUEUE' || processingStatus === 'IN_PROGRESS') {
-      return json({ status: 'IN_PROGRESS', processingStatus });
-    }
-    if (processingStatus === 'CANCELLED' || processingStatus === 'FATAL') {
-      return json({ status: 'FAILED', processingStatus, error: 'Report generation failed' });
-    }
-    if (processingStatus !== 'DONE') {
-      return json({ status: 'UNKNOWN', processingStatus });
+    // 2. 各SKUの情報を順番に取得
+    for (const sku of skus) {
+      try {
+        const data = await getListingInfo(env, token, sku);
+        results.push({ sku, ...data, status: 'ok' });
+      } catch (e) {
+        // 個別エラー時はそのSKUのみエラーとして記録
+        results.push({ 
+          sku, 
+          status: 'error', 
+          error: e.message.substring(0, 80) 
+        });
+      }
+      // APIレート制限（スロットリング）回避のため少し待機 (300ms)
+      await new Promise(r => setTimeout(r, 300));
     }
 
-    const documentId = statusData.reportDocumentId;
-    if (!documentId) return json({ status: 'FAILED', error: 'reportDocumentId missing' }, 500);
-
-    // ドキュメント取得
-    const docRes = await fetch(`${base}/documents/${documentId}`, h);
-    if (!docRes.ok) {
-      const errText = await docRes.text();
-      return json({ status: 'FAILED', error: `Document fetch ${docRes.status}: ${errText.substring(0, 200)}` }, 500);
-    }
-    const docData = await docRes.json();
-
-    // レポートダウンロード
-    const reportRes = await fetch(docData.url);
-    if (!reportRes.ok) {
-      return json({ status: 'FAILED', error: `Download failed: ${reportRes.status}` }, 500);
-    }
-
-    let reportBuffer;
-    if (docData.compressionAlgorithm === 'GZIP') {
-      const stream = reportRes.body.pipeThrough(new DecompressionStream('gzip'));
-      reportBuffer = await new Response(stream).arrayBuffer();
-    } else {
-      reportBuffer = await reportRes.arrayBuffer();
-    }
-
-    const reportText = new TextDecoder('utf-8').decode(reportBuffer);
-    const { skus, debug } = parseReport(reportText);
-
-    // KV保存（既存のキー名 sku_list を維持）
-    const payload = {
-      updated: new Date().toISOString(),
-      count: skus.length,
-      summary: summarize(skus),
-      skus,
-    };
-    const payloadStr = JSON.stringify(payload);
-    const payloadSize = new TextEncoder().encode(payloadStr).length;
-
-    let kvSaveStatus = 'success';
-    let kvSaveError = null;
-    try {
-      await env.SKU_CACHE.put('sku_list', payloadStr, {
-        expirationTtl: 60 * 60 * 24 * 7,
-      });
-    } catch (e) {
-      kvSaveStatus = 'failed';
-      kvSaveError = e.message;
-    }
-
-    return json({
-      status: 'DONE',
-      count: skus.length,
-      summary: payload.summary,
-      debug: {
-        payloadSizeBytes: payloadSize,
-        kvSaveStatus,
-        kvSaveError,
-        kvBinding: env.SKU_CACHE ? 'bound' : 'NOT BOUND',
-        parseDebug: debug,
-      },
-    });
+    return json(results);
   } catch (e) {
-    return json({ status: 'FAILED', error: e.message, stack: e.stack }, 500);
+    return json({ error: e.message }, 500);
   }
 }
 
-// 値正規化: BOM除去、前後空白除去、ダブルクォート除去
-const clean = (v) => (v ?? '').replace(/^\uFEFF/, '').trim().replace(/^"+|"+$/g, '').trim();
+/**
+ * SKUから出品情報と競合価格を取得するメインロジック
+ */
+async function getListingInfo(env, token, sku) {
+  const marketplaceId = 'A1VC38T7YXB528'; // 日本
+  const sellerId = env.SP_SELLER_ID;
 
-function parseReport(text) {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim());
-  if (lines.length < 2) return { skus: [], debug: { totalRows: 0, skipped: {}, headers: [], idx: {} } };
+  // --- A. Listing情報の取得 (自分の価格とASINを取得) ---
+  const listingUrl = `https://sellingpartnerapi-fe.amazon.com/listings/2021-08-01/items/${sellerId}/${encodeURIComponent(sku)}?marketplaceIds=${marketplaceId}&includedData=offers,summaries,attributes`;
+  const listingRes = await fetch(listingUrl, {
+    headers: { 'x-amz-access-token': token }
+  });
 
-  // ヘッダー正規化（BOM・引用符除去）
-  const headers = lines[0].split('\t').map(clean);
+  if (!listingRes.ok) {
+    const errText = await listingRes.text();
+    throw new Error(`Amazon Listing API Error: ${listingRes.status}`);
+  }
 
-  // ヘッダー検索（完全一致、複数名対応）
-  const find = (...names) => {
-    for (const n of names) {
-      const i = headers.indexOf(n);
-      if (i >= 0) return i;
-    }
-    return -1;
-  };
+  const listingData = await listingRes.ok ? await listingRes.json() : null;
+  const myPrice = Math.round(parseFloat(listingData?.offers?.[0]?.price?.amount || 0));
+  const asin = listingData?.summaries?.[0]?.asin;
+  const itemName = listingData?.summaries?.[0]?.itemName || '';
 
-  const idx = {
-    sku: find('出品者SKU', 'seller-sku'),
-    asin: find('商品ID', 'asin1', 'product-id'),  // 完全一致で「商品IDタイプ」を誤検出しない
-    name: find('商品名', 'item-name'),
-    price: find('価格', 'price'),
-    quantity: find('数量', 'quantity'),
-    stockQty: find('在庫数', 'afn-fulfillable-quantity'),
-    channel: find('フルフィルメント・チャンネル', 'fulfillment-channel'),
-    status: find('ステータス', 'status'),
-  };
+  if (!asin) throw new Error('ASINの取得に失敗しました');
 
-  const skipped = { notActive: 0, noSku: 0, noAsin: 0 };
-  const skus = [];
+  // --- B. 競合価格情報の取得 (カート価格と最安値を取得) ---
+  const pricingUrl = `https://sellingpartnerapi-fe.amazon.com/products/pricing/v0/items/${asin}/offers?MarketplaceId=${marketplaceId}&ItemCondition=New`;
+  const pricingRes = await fetch(pricingUrl, {
+    headers: { 'x-amz-access-token': token }
+  });
 
-  for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split('\t').map(clean);
-    if (cols.length < 5) continue;
+  let cartPrice = null;
+  let lowestPrice = null;
+  let competitorCount = 0;
+  let hasBuyBox = false;
 
-    const status = idx.status >= 0 ? cols[idx.status] : 'Active';
-    if (status !== 'Active') {
-      skipped.notActive++;
-      continue;
-    }
+  if (pricingRes.ok) {
+    const pricingData = await pricingRes.json();
+    const offers = pricingData.payload?.Offers || [];
+    competitorCount = offers.length;
 
-    const sku = idx.sku >= 0 ? cols[idx.sku] : '';
-    if (!sku) {
-      skipped.noSku++;
-      continue;
-    }
-
-    const asin = idx.asin >= 0 ? cols[idx.asin] : '';
-    if (!asin) {
-      skipped.noAsin++;
-      continue;
+    // カート獲得者（BuyBox）の特定
+    const buyBoxOffer = offers.find(o => o.IsBuyBoxWinner);
+    if (buyBoxOffer) {
+      cartPrice = Math.round(buyBoxOffer.ListingPrice?.Amount || 0);
+      // 自分のSellerIdとカート獲得者のSellerIdが一致するか判定
+      hasBuyBox = buyBoxOffer.SellerId === env.SP_SELLER_ID;
     }
 
-    const channelRaw = idx.channel >= 0 ? cols[idx.channel] : '';
-    const channel = channelRaw.startsWith('AMAZON') ? 'FBA' : 'FBM';
-
-    const qtyStr = (idx.quantity >= 0 ? cols[idx.quantity] : '') ||
-                   (idx.stockQty >= 0 ? cols[idx.stockQty] : '');
-    const quantity = parseInt(qtyStr || '0', 10) || 0;
-
-    const priceStr = idx.price >= 0 ? cols[idx.price] : '0';
-    const price = parseFloat(priceStr || '0') || 0;
-
-    skus.push({
-      sku,
-      asin,
-      name: (idx.name >= 0 ? cols[idx.name] : '').substring(0, 80),
-      price,
-      quantity,
-      channel,
-    });
+    // 最安値の取得
+    const summary = pricingData.payload?.Summary;
+    const lowestOffers = summary?.LowestPrices || [];
+    const newLowest = lowestOffers.find(l => l.condition === 'New');
+    if (newLowest) {
+      lowestPrice = Math.round(newLowest.LandedPrice?.Amount || 0);
+    }
   }
 
   return {
-    skus,
-    debug: {
-      totalRows: lines.length - 1,
-      skipped,
-      headers,
-      idx,
-    },
+    name: itemName.substring(0, 60),
+    asin,
+    myPrice,
+    cartPrice,
+    lowestPrice,
+    hasBuyBox,
+    competitorCount,
+    diffFromCart: cartPrice ? myPrice - cartPrice : null,
+    diffFromLowest: lowestPrice ? myPrice - lowestPrice : null,
   };
 }
 
-function summarize(skus) {
-  const fba = skus.filter((s) => s.channel === 'FBA').length;
-  const fbm = skus.filter((s) => s.channel === 'FBM').length;
-  return { total: skus.length, fba, fbm };
-}
-
+/**
+ * Amazon LWA Access Tokenの取得
+ */
 async function getAccessToken(env) {
   const res = await fetch('https://api.amazon.com/auth/o2/token', {
     method: 'POST',
@@ -197,13 +125,16 @@ async function getAccessToken(env) {
     }),
   });
   const data = await res.json();
-  if (!data.access_token) throw new Error('認証失敗');
+  if (!data.access_token) throw new Error('Access Tokenの取得に失敗しました');
   return data.access_token;
 }
 
+/**
+ * レスポンス用ヘルパー
+ */
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json' }
   });
 }
