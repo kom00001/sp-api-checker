@@ -139,6 +139,16 @@
     .diff-preview{font-size:16px;font-weight:700;text-align:center;margin:10px 0;padding:10px;background:#f9f9f9;border-radius:6px}
     .diff-preview .old{color:#999;text-decoration:line-through;margin-right:8px}
     .diff-preview .new{color:#dc3545}
+        /* サムネイル画像 */
+    .thumb{flex-shrink:0;background:#f0f0f0;border-radius:6px;overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center}
+    .thumb-card{width:60px;height:60px}
+    .thumb-modal{width:48px;height:48px;min-width:48px}
+    .thumb img{width:100%;height:100%;object-fit:contain;display:block}
+    .thumb-noimg{font-size:9px;color:#999;text-align:center;line-height:1.2;padding:2px}
+    .thumb-link{display:block;text-decoration:none;-webkit-tap-highlight-color:rgba(0,0,0,0.1)}
+    .card-head{display:flex;align-items:flex-start;gap:8px}
+    .sku-row{display:flex;align-items:center;gap:8px}
+    .sku-row .sku-body{flex:1;min-width:0}
   </style>
 </head>
 <body>
@@ -280,6 +290,44 @@ let bulkSelection = new Set();
 let pendingSkus = new Map();
 let pendingTick = null;
 
+
+
+// サムネイルURL生成（ASINから推定）
+function buildThumbUrl(asin) {
+  if (!asin) return null;
+  return `https://m.media-amazon.com/images/P/${encodeURIComponent(asin)}.09._SL160_.jpg`;
+}
+
+// 商品ページURL生成
+function buildProductUrl(asin) {
+  if (!asin) return null;
+  return `https://www.amazon.co.jp/dp/${encodeURIComponent(asin)}`;
+}
+
+// サムネイルHTML生成（カード用：60px、タップで別タブ）
+function renderThumbCard(asin, name) {
+  const alt = escapeHtml((name || asin || '').substring(0, 40));
+  if (!asin) {
+    return `<div class="thumb thumb-card"><div class="thumb-noimg">No<br>Image</div></div>`;
+  }
+  const imgUrl = buildThumbUrl(asin);
+  const productUrl = buildProductUrl(asin);
+  const imgHtml = `<img src="${imgUrl}" alt="${alt}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\'thumb-noimg\\'>No<br>Image</div>'">`;
+  return `<a class="thumb thumb-card thumb-link" href="${productUrl}" target="_blank" rel="noopener noreferrer" aria-label="Amazon商品ページを開く" onclick="event.stopPropagation()">${imgHtml}</a>`;
+}
+
+// サムネイルHTML生成（モーダル用：48px、リンクなし）
+function renderThumbModal(asin, name) {
+  const alt = escapeHtml((name || asin || '').substring(0, 40));
+  if (!asin) {
+    return `<div class="thumb thumb-modal"><div class="thumb-noimg">No<br>Image</div></div>`;
+  }
+  const imgUrl = buildThumbUrl(asin);
+  const imgHtml = `<img src="${imgUrl}" alt="${alt}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\'thumb-noimg\\'>No<br>Image</div>'">`;
+  return `<div class="thumb thumb-modal">${imgHtml}</div>`;
+}
+
+  
 window.addEventListener('load', () => {
   const saved = localStorage.getItem('skus');
   if (saved) {
@@ -408,6 +456,9 @@ function renderCard(r) {
     <div class="card ${statusClass}" data-sku="${escapeHtml(r.sku)}">
       <div class="card-head">
         <input type="checkbox" class="card-check" ${isBulkSelected ? 'checked' : ''} onchange="toggleBulk('${escapeHtml(r.sku)}', this)">
+        
+        ${renderThumbCard(r.asin, r.name)}
+        
         <div class="card-body">
           <div class="nm">${escapeHtml(r.name || '(名称なし)')}</div>
           <div class="meta">SKU:${escapeHtml(r.sku)} / 競合:${r.competitorCount}名</div>
@@ -936,6 +987,9 @@ function renderSkuList() {
     return `
       <label class="sku-row ${isSelected ? 'selected' : ''} ${disabled ? 'disabled' : ''}">
         <input type="checkbox" class="sku-check" ${isSelected ? 'checked' : ''} ${disabled ? 'disabled' : ''} data-sku="${escapeHtml(s.sku)}" onchange="toggleSku(this)">
+
+        ${renderThumbModal(s.asin, s.name)}
+        
         <div class="sku-body">
           <div class="sku-top">
             <span class="sku-code">${escapeHtml(s.sku)}</span>
