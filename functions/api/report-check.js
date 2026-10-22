@@ -62,16 +62,18 @@ export async function onRequestGet({ request, env }) {
     const payloadStr = JSON.stringify(payload);
     const payloadSize = new TextEncoder().encode(payloadStr).length;
 
+
     let kvSaveStatus = 'success';
     let kvSaveError = null;
     try {
       await env.SKU_CACHE.put('sku_list', payloadStr, {
-        expirationTtl: 60 * 60 * 24 * 7,
+        expirationTtl: 60 * 60 * 24 * 30,
       });
     } catch (e) {
       kvSaveStatus = 'failed';
       kvSaveError = e.message;
     }
+    
 
     return json({
       status: 'DONE',
