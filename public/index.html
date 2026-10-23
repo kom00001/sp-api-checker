@@ -149,6 +149,17 @@
     .card-head{display:flex;align-items:flex-start;gap:8px}
     .sku-row{display:flex;align-items:center;gap:8px}
     .sku-row .sku-body{flex:1;min-width:0}
+
+        /* コピーボタン */
+    .copy-sku-btn{flex-shrink:0;width:32px;height:32px;border:1px solid #ddd;background:#fff;border-radius:6px;font-size:14px;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent;transition:background 0.15s,transform 0.1s}
+    .copy-sku-btn:active{background:#e3f2fd;transform:scale(0.92)}
+    .copy-sku-btn:focus{outline:2px solid #4a90e2;outline-offset:1px}
+    /* 在庫変更ボタン */
+    .stock-edit{margin-top:8px;padding:8px;background:#f0f8ff;border-radius:6px;border:1px solid #d0e3f5}
+    .stock-edit-label{font-size:11px;color:#4a6fa5;margin-bottom:4px;font-weight:700}
+    .stock-edit-row{display:flex;gap:6px}
+    .stock-edit-row .pbtn{flex:1}
+    
   </style>
 </head>
 <body>
@@ -292,11 +303,6 @@ let pendingTick = null;
 
 
 
-// サムネイルURL生成（ASINから推定）
-function buildThumbUrl(asin) {
-  if (!asin) return null;
-  return `https://m.media-amazon.com/images/P/${encodeURIComponent(asin)}.09._SL160_.jpg`;
-}
 
 // 商品ページURL生成
 function buildProductUrl(asin) {
@@ -304,15 +310,16 @@ function buildProductUrl(asin) {
   return `https://www.amazon.co.jp/dp/${encodeURIComponent(asin)}`;
 }
 
+
+
 // サムネイルHTML生成（カード用：60px、タップで別タブ）
 function renderThumbCard(asin, name) {
   const alt = escapeHtml((name || asin || '').substring(0, 40));
   if (!asin) {
     return `<div class="thumb thumb-card"><div class="thumb-noimg">No<br>Image</div></div>`;
   }
-  const imgUrl = buildThumbUrl(asin);
   const productUrl = buildProductUrl(asin);
-  const imgHtml = `<img src="${imgUrl}" alt="${alt}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\'thumb-noimg\\'>No<br>Image</div>'">`;
+  const imgHtml = buildFallbackImg(asin, alt);
   return `<a class="thumb thumb-card thumb-link" href="${productUrl}" target="_blank" rel="noopener noreferrer" aria-label="Amazon商品ページを開く" onclick="event.stopPropagation()">${imgHtml}</a>`;
 }
 
@@ -322,10 +329,42 @@ function renderThumbModal(asin, name) {
   if (!asin) {
     return `<div class="thumb thumb-modal"><div class="thumb-noimg">No<br>Image</div></div>`;
   }
-  const imgUrl = buildThumbUrl(asin);
-  const imgHtml = `<img src="${imgUrl}" alt="${alt}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\'thumb-noimg\\'>No<br>Image</div>'">`;
-  return `<div class="thumb thumb-modal">${imgHtml}</div>`;
+  return `<div class="thumb thumb-modal">${buildFallbackImg(asin, alt)}</div>`;
 }
+
+// 画像URLの複数パターンフォールバック（naturalWidth判定で1×1ダミーGIFも検知）
+function buildFallbackImg(asin, alt) {
+  const a = encodeURIComponent(asin);
+  const urls = [
+    `https://m.media-amazon.com/images/P/${a}.09._SL160_.jpg`,
+    `https://m.media-amazon.com/images/P/${a}.01._SL160_.jpg`,
+    `https://images-na.ssl-images-amazon.com/images/P/${a}.01.LZZZZZZZ.jpg`,
+  ];
+  const urlsAttr = escapeHtml(JSON.stringify(urls));
+  return `<img src="${urls[0]}" alt="${alt}" loading="lazy" data-urls="${urlsAttr}" data-step="0" onload="checkThumb(this)" onerror="nextThumb(this)">`;
+}
+
+// 画像ロード完了時：1×1ダミーGIFを検知して次へ
+function checkThumb(img) {
+  if (img.naturalWidth <= 1) nextThumb(img);
+}
+
+// 次のURLに切り替え、全部失敗したらNo Image
+function nextThumb(img) {
+  try {
+    const urls = JSON.parse(img.dataset.urls);
+    const step = parseInt(img.dataset.step || '0', 10) + 1;
+    if (step >= urls.length) {
+      img.parentElement.innerHTML = '<div class="thumb-noimg">No<br>Image</div>';
+      return;
+    }
+    img.dataset.step = String(step);
+    img.src = urls[step];
+  } catch (e) {
+    img.parentElement.innerHTML = '<div class="thumb-noimg">No<br>Image</div>';
+  }
+}
+  
 
   
 window.addEventListener('load', () => {
@@ -421,6 +460,8 @@ function render() {
   document.getElementById('list').innerHTML = filtered.map(r => renderCard(r)).join('');
 }
 
+
+
 function renderCard(r) {
   if (r.status === 'error') {
     return `<div class="card error" data-sku="${escapeHtml(r.sku)}"><div class="nm">${escapeHtml(r.sku)}</div><div class="meta">⚠️ ${escapeHtml(r.error || '')}</div></div>`;
@@ -438,6 +479,9 @@ function renderCard(r) {
   const hasCart = r.cartPrice && r.cartPrice > 0;
   const pending = pendingSkus.get(r.sku);
   const lastHistory = getLastHistoryForSku(r.sku);
+  const channel = getSkuChannel(r.sku);
+  const isFBM = channel === 'FBM';
+  const currentStock = getSkuCurrentStock(r.sku);
 
   let pendingBadge = '';
   if (pending) {
@@ -452,16 +496,29 @@ function renderCard(r) {
     historyNote = `<div class="history-note">📜 ${ago} ¥${lastHistory.oldPrice.toLocaleString()} → ¥${lastHistory.newPrice.toLocaleString()}</div>`;
   }
 
+  // FBM商品の在庫変更UI
+  let stockEditHtml = '';
+  if (isFBM) {
+    const stockText = currentStock !== null ? `現在: ${currentStock}` : '現在: 不明';
+    stockEditHtml = `
+      <div class="stock-edit">
+        <div class="stock-edit-label">📦 自己配送の在庫変更 (${stockText})</div>
+        <div class="stock-edit-row">
+          <button class="pbtn" onclick="askStockChange('${escapeHtml(r.sku)}')">在庫数を変更</button>
+        </div>
+        <div class="update-status" id="stock-status-${escapeHtml(r.sku)}" style="display:none"></div>
+      </div>
+    `;
+  }
+
   return `
     <div class="card ${statusClass}" data-sku="${escapeHtml(r.sku)}">
       <div class="card-head">
         <input type="checkbox" class="card-check" ${isBulkSelected ? 'checked' : ''} onchange="toggleBulk('${escapeHtml(r.sku)}', this)">
-        
         ${renderThumbCard(r.asin, r.name)}
-        
         <div class="card-body">
           <div class="nm">${escapeHtml(r.name || '(名称なし)')}</div>
-          <div class="meta">SKU:${escapeHtml(r.sku)} / 競合:${r.competitorCount}名</div>
+          <div class="meta">SKU:${escapeHtml(r.sku)} / 競合:${r.competitorCount}名${channel ? ` / ${channel === 'FBA' ? 'FBA' : '自己配送'}` : ''}</div>
         </div>
       </div>
       <div class="price-grid">
@@ -488,9 +545,13 @@ function renderCard(r) {
         <div class="update-status" id="status-${escapeHtml(r.sku)}" style="display:none"></div>
         ${pending ? `<div class="recheck-btn-row"><button class="recheck-btn" onclick="manualRecheck('${escapeHtml(r.sku)}')">🔄 反映確認</button></div>` : ''}
       </div>
+      ${stockEditHtml}
     </div>
   `;
 }
+
+
+  
 
 function setFilter(f) {
   currentFilter = f;
@@ -994,6 +1055,7 @@ function renderSkuList() {
           <div class="sku-top">
             <span class="sku-code">${escapeHtml(s.sku)}</span>
             <span class="sku-badge ${s.channel}">${s.channel === 'FBA' ? 'FBA' : '自己'}</span>
+            <button type="button" class="copy-sku-btn" data-sku="${escapeHtml(s.sku)}" onclick="copySku(event, this.dataset.sku)" aria-label="SKUをコピー">📋</button>
           </div>
           <div class="sku-name">${escapeHtml(name)}</div>
           <div class="sku-meta">
@@ -1020,6 +1082,121 @@ function formatOpenDate(iso) {
 }
 
 function toggleSku(cb) {
+  // SKUをクリップボードにコピー
+async function copySku(event, sku) {
+  if (event) { event.preventDefault(); event.stopPropagation(); }
+  if (!sku) { toast('⚠️ SKUが取得できません'); return; }
+  try {
+    await navigator.clipboard.writeText(sku);
+    toast(`📋 ${sku} をコピー`);
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = sku; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); toast(`📋 ${sku} をコピー`); }
+    catch { toast('⚠️ コピー失敗'); }
+    document.body.removeChild(ta);
+  }
+}
+
+// SKUからchannel情報を取得（SKU一覧データから照合）
+function getSkuChannel(sku) {
+  if (!skuData.items || skuData.items.length === 0) return null;
+  const item = skuData.items.find(x => x.sku === sku);
+  return item ? item.channel : null;
+}
+
+// 在庫変更ダイアログを開く
+function askStockChange(sku) {
+  const r = results.find(x => x.sku === sku);
+  if (!r) { toast('⚠️ 対象SKUが見つかりません'); return; }
+  const current = getSkuCurrentStock(sku);
+  const currentText = current !== null ? `現在在庫: ${current}` : '現在在庫: 不明';
+
+  document.getElementById('dialogTitle').textContent = '在庫数を変更';
+  document.getElementById('dialogBody').innerHTML = `
+    <div>SKU: <strong>${escapeHtml(sku)}</strong></div>
+    <div style="font-size:12px;color:#666;margin:4px 0">${escapeHtml((r.name||'').substring(0,40))}</div>
+    <div style="margin:8px 0">${currentText}</div>
+    <input type="number" class="dialog-input" id="stockInput" placeholder="新しい在庫数（0で出品停止）" min="0" max="999999">
+    <div class="dialog-warn" style="margin-top:8px">⚠️ 0を入力すると出品停止になります</div>
+  `;
+  document.getElementById('dialogConfirm').textContent = '確認';
+  document.getElementById('dialogConfirm').onclick = () => {
+    const v = parseInt(document.getElementById('stockInput').value, 10);
+    if (isNaN(v) || v < 0) { toast('⚠️ 0以上の整数を入力'); return; }
+    closeDialog();
+    confirmStockChange(sku, v, r.name);
+  };
+  openDialog();
+  setTimeout(() => document.getElementById('stockInput').focus(), 100);
+}
+
+// 在庫数の現在値を取得（SKU一覧データから）
+function getSkuCurrentStock(sku) {
+  if (!skuData.items || skuData.items.length === 0) return null;
+  const item = skuData.items.find(x => x.sku === sku);
+  return item ? (item.quantity || 0) : null;
+}
+
+// 在庫変更の最終確認
+function confirmStockChange(sku, qty, name) {
+  const isStop = qty === 0;
+  document.getElementById('dialogTitle').textContent = isStop ? '⚠️ 出品停止の確認' : '在庫変更の確認';
+  document.getElementById('dialogBody').innerHTML = `
+    <div>SKU: <strong>${escapeHtml(sku)}</strong></div>
+    <div style="font-size:12px;color:#666;margin:4px 0">${escapeHtml((name||'').substring(0,40))}</div>
+    <div class="diff-preview">
+      <span class="new">在庫 ${qty}</span>
+    </div>
+    ${isStop ? '<div class="dialog-warn">⚠️ 0在庫で登録 → 出品停止になります。本当に実行しますか？</div>' : ''}
+  `;
+  document.getElementById('dialogConfirm').textContent = '実行';
+  document.getElementById('dialogConfirm').onclick = async () => {
+    closeDialog();
+    await executeStockChange(sku, qty, name);
+  };
+  openDialog();
+}
+
+// 在庫変更の実行
+async function executeStockChange(sku, qty, name) {
+  const st = document.getElementById(`stock-status-${sku}`);
+  if (st) { st.style.display = 'block'; st.className = 'update-status pending'; st.textContent = '⏳ 変更中...'; }
+
+  try {
+    const res = await fetch('/api/stock-update', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ sku, quantity: qty })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      if (st) { st.className = 'update-status ok'; st.textContent = `✅ ${data.message || '在庫変更受付'} (${qty})`; }
+      toast(`✅ ${sku} 在庫変更受付 (${qty})`);
+      addHistory({
+        at: Date.now(), sku, name,
+        oldPrice: getSkuCurrentStock(sku) || 0,
+        newPrice: qty,
+        type: 'stock',
+        ok: true, submissionId: data.submissionId
+      });
+    } else {
+      if (st) { st.className = 'update-status err'; st.textContent = `❌ ${(data.error || 'エラー').substring(0, 60)}`; }
+      toast(`❌ ${sku} 在庫変更失敗`);
+      addHistory({
+        at: Date.now(), sku, name,
+        oldPrice: getSkuCurrentStock(sku) || 0,
+        newPrice: qty,
+        type: 'stock',
+        ok: false, error: data.error
+      });
+    }
+  } catch (e) {
+    if (st) { st.className = 'update-status err'; st.textContent = `❌ ${e.message}`; }
+    toast(`❌ ${sku}: ${e.message}`);
+  }
+}
   const sku = cb.dataset.sku;
   if (cb.checked) {
     if (selectedSkus.size >= MAX_SKUS) { cb.checked = false; toast(`⚠️ 最大${MAX_SKUS}件まで`); return; }
