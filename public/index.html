@@ -323,37 +323,45 @@ function buildProductUrl(asin) {
 
 
 
+
 // サムネイルHTML生成（カード用：60px、タップで別タブ）
-function renderThumbCard(asin, name) {
+function renderThumbCard(asin, name, imageUrl) {
   const alt = escapeHtml((name || asin || '').substring(0, 40));
   if (!asin) {
     return `<div class="thumb thumb-card"><div class="thumb-noimg">No<br>Image</div></div>`;
   }
   const productUrl = buildProductUrl(asin);
-  const imgHtml = buildFallbackImg(asin, alt);
+  const imgHtml = buildFallbackImg(asin, alt, imageUrl);
   return `<a class="thumb thumb-card thumb-link" href="${productUrl}" target="_blank" rel="noopener noreferrer" aria-label="Amazon商品ページを開く" onclick="event.stopPropagation()">${imgHtml}</a>`;
 }
 
 // サムネイルHTML生成（モーダル用：48px、リンクなし）
-function renderThumbModal(asin, name) {
+function renderThumbModal(asin, name, imageUrl) {
   const alt = escapeHtml((name || asin || '').substring(0, 40));
   if (!asin) {
     return `<div class="thumb thumb-modal"><div class="thumb-noimg">No<br>Image</div></div>`;
   }
-  return `<div class="thumb thumb-modal">${buildFallbackImg(asin, alt)}</div>`;
+  return `<div class="thumb thumb-modal">${buildFallbackImg(asin, alt, imageUrl)}</div>`;
 }
 
-// 画像URLの複数パターンフォールバック（naturalWidth判定で1×1ダミーGIFも検知）
-function buildFallbackImg(asin, alt) {
+
+
+// 画像URLの複数パターンフォールバック（imageUrl優先、推測URLフォールバック、naturalWidth判定付き）
+function buildFallbackImg(asin, alt, savedImageUrl) {
   const a = encodeURIComponent(asin);
   const urls = [
+    savedImageUrl, // Catalog APIから取得した本物URL（最優先）
     `https://m.media-amazon.com/images/P/${a}.09._SL160_.jpg`,
     `https://m.media-amazon.com/images/P/${a}.01._SL160_.jpg`,
     `https://images-na.ssl-images-amazon.com/images/P/${a}.01.LZZZZZZZ.jpg`,
-  ];
+  ].filter(Boolean);
+  if (urls.length === 0) {
+    return `<div class="thumb-noimg">No<br>Image</div>`;
+  }
   const urlsAttr = escapeHtml(JSON.stringify(urls));
   return `<img src="${urls[0]}" alt="${alt}" loading="lazy" data-urls="${urlsAttr}" data-step="0" onload="checkThumb(this)" onerror="nextThumb(this)">`;
 }
+  
 
 // 画像ロード完了時：1×1ダミーGIFを検知して次へ
 function checkThumb(img) {
@@ -529,7 +537,7 @@ function renderCard(r) {
     <div class="card ${statusClass}" data-sku="${escapeHtml(r.sku)}">
       <div class="card-head">
         <input type="checkbox" class="card-check" ${isBulkSelected ? 'checked' : ''} onchange="toggleBulk('${escapeHtml(r.sku)}', this)">
-        ${renderThumbCard(r.asin, r.name)}
+        ${renderThumbCard(r.asin, r.name, getSkuImageUrl(r.sku))}
         <div class="card-body">
           <div class="nm">${escapeHtml(r.name || '(名称なし)')}</div>
           <div class="meta">SKU:${escapeHtml(r.sku)} / 競合:${r.competitorCount}名${channel ? ` / ${channel === 'FBA' ? 'FBA' : '自己配送'}` : ''}</div>
@@ -911,6 +919,8 @@ function bulkPriceChange(option) {
 function openDialog() { document.getElementById('dialog').classList.add('show'); }
 function closeDialog() { document.getElementById('dialog').classList.remove('show'); }
 
+
+  
 async function updateSkuList() {
   const remain = getCooldownRemain();
   if (remain > 0) { toast(`⏳ あと${formatSec(remain)}お待ちください`); return; }
@@ -928,20 +938,66 @@ async function updateSkuList() {
     localStorage.setItem(UPDATE_KEY, Date.now().toString());
     let attempts = 0;
     const maxAttempts = 10;
+    let reportDone = false;
     while (attempts < maxAttempts) {
       attempts++;
       btn.textContent = `⏳ 生成中... (${attempts}/${maxAttempts})`;
       await sleep(30000);
       const checkRes = await fetch(`/api/report-check?id=${encodeURIComponent(reportId)}`);
       const checkData = await checkRes.json();
-      if (checkData.status === 'DONE') { toast(`✅ ${checkData.count}件取得完了`); break; }
+      if (checkData.status === 'DONE') {
+        toast(`✅ ${checkData.count}件取得完了`);
+        reportDone = true;
+        break;
+      }
       if (checkData.status === 'FAILED') throw new Error(checkData.error || 'レポート生成失敗');
     }
-    if (attempts >= maxAttempts) throw new Error('タイムアウト（5分経過）');
+    if (!reportDone) throw new Error('タイムアウト（5分経過）');
+
+    // 画像URL取得（バックグラウンド処理）
+    await fetchAllImages(btn);
   } catch (e) { alert('❌ 更新失敗: ' + e.message); }
   finally { btn.disabled = false; updateCooldownDisplay(); }
 }
 
+// 全バッチの画像URLを順次取得
+async function fetchAllImages(btn) {
+  let batchIndex = 0;
+  let totalFetched = 0;
+  let totalBatches = 0;
+  const maxBatches = 30; // 安全マージン
+  try {
+    while (batchIndex < maxBatches) {
+      btn.textContent = `🖼 画像取得中... (${batchIndex + 1}${totalBatches ? '/' + totalBatches : ''})`;
+      const res = await fetch('/api/image-fetch', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ batchIndex })
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        console.warn('画像取得エラー:', data.error);
+        break; // エラーでも処理続行（画像なしでも表示可能）
+      }
+      totalBatches = data.totalBatches || totalBatches;
+      totalFetched += data.fetched || 0;
+      if (data.done || data.nextBatch === null) {
+        toast(`🖼 画像URL ${totalFetched}件取得完了`);
+        break;
+      }
+      batchIndex = data.nextBatch;
+      // SP-APIレート制限（2 req/sec）対応: 600ms待機
+      await sleep(600);
+    }
+  } catch (e) {
+    console.warn('画像取得で例外:', e);
+    toast(`⚠️ 画像取得途中で停止 (${totalFetched}件取得済み)`);
+  }
+}
+
+  
+
+  
 function getCooldownRemain() {
   const last = parseInt(localStorage.getItem(UPDATE_KEY) || '0', 10);
   if (!last) return 0;
@@ -1065,7 +1121,7 @@ function renderSkuList() {
       <label class="sku-row ${isSelected ? 'selected' : ''} ${disabled ? 'disabled' : ''}">
         <input type="checkbox" class="sku-check" ${isSelected ? 'checked' : ''} ${disabled ? 'disabled' : ''} data-sku="${escapeHtml(s.sku)}" onchange="toggleSku(this)">
 
-        ${renderThumbModal(s.asin, s.name)}
+        ${renderThumbModal(s.asin, s.name, s.imageUrl)}
         
         <div class="sku-body">
           <div class="sku-top">
@@ -1117,6 +1173,15 @@ async function copySku(event, sku) {
   }
 }
 
+
+// SKU一覧データから imageUrl を取得
+function getSkuImageUrl(sku) {
+  if (!skuData.items || skuData.items.length === 0) return null;
+  const item = skuData.items.find(x => x.sku === sku);
+  return item ? (item.imageUrl || null) : null;
+}
+
+  
 // SKU一覧データから channel を取得（FBA/FBM判定用）
 function getSkuChannel(sku) {
   if (!skuData.items || skuData.items.length === 0) return null;
