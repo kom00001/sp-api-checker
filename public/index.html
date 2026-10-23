@@ -150,6 +150,17 @@
     .sku-row{display:flex;align-items:center;gap:8px}
     .sku-row .sku-body{flex:1;min-width:0}
 
+        /* SKUコピーボタン */
+    .copy-sku-btn{flex-shrink:0;width:32px;height:32px;border:1px solid #ddd;background:#fff;border-radius:6px;font-size:14px;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent;transition:background 0.15s,transform 0.1s}
+    .copy-sku-btn:active{background:#e3f2fd;transform:scale(0.92)}
+    .copy-sku-btn:focus{outline:2px solid #4a90e2;outline-offset:1px}
+    /* FBM在庫変更UI */
+    .stock-edit{margin-top:8px;padding:8px;background:#f0f8ff;border-radius:6px;border:1px solid #d0e3f5}
+    .stock-edit-label{font-size:11px;color:#4a6fa5;margin-bottom:4px;font-weight:700}
+    .stock-edit-row{display:flex;gap:6px}
+    .stock-edit-row .pbtn{flex:1}
+    
+
         /* コピーボタン */
     .copy-sku-btn{flex-shrink:0;width:32px;height:32px;border:1px solid #ddd;background:#fff;border-radius:6px;font-size:14px;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent;transition:background 0.15s,transform 0.1s}
     .copy-sku-btn:active{background:#e3f2fd;transform:scale(0.92)}
@@ -462,6 +473,7 @@ function render() {
 
 
 
+
 function renderCard(r) {
   if (r.status === 'error') {
     return `<div class="card error" data-sku="${escapeHtml(r.sku)}"><div class="nm">${escapeHtml(r.sku)}</div><div class="meta">⚠️ ${escapeHtml(r.error || '')}</div></div>`;
@@ -493,7 +505,9 @@ function renderCard(r) {
   let historyNote = '';
   if (lastHistory) {
     const ago = formatAgo(Date.now() - lastHistory.at);
-    historyNote = `<div class="history-note">📜 ${ago} ¥${lastHistory.oldPrice.toLocaleString()} → ¥${lastHistory.newPrice.toLocaleString()}</div>`;
+    const unit = lastHistory.type === 'stock' ? '' : '¥';
+    const icon = lastHistory.type === 'stock' ? '📦' : '📜';
+    historyNote = `<div class="history-note">${icon} ${ago} ${unit}${lastHistory.oldPrice.toLocaleString()} → ${unit}${lastHistory.newPrice.toLocaleString()}</div>`;
   }
 
   // FBM商品の在庫変更UI
@@ -549,6 +563,8 @@ function renderCard(r) {
     </div>
   `;
 }
+
+  
 
 
   
@@ -1056,6 +1072,7 @@ function renderSkuList() {
             <span class="sku-code">${escapeHtml(s.sku)}</span>
             <span class="sku-badge ${s.channel}">${s.channel === 'FBA' ? 'FBA' : '自己'}</span>
             <button type="button" class="copy-sku-btn" data-sku="${escapeHtml(s.sku)}" onclick="copySku(event, this.dataset.sku)" aria-label="SKUをコピー">📋</button>
+            <button type="button" class="copy-sku-btn" data-sku="${escapeHtml(s.sku)}" onclick="copySku(event, this.dataset.sku)" aria-label="SKUをコピー">📋</button>
           </div>
           <div class="sku-name">${escapeHtml(name)}</div>
           <div class="sku-meta">
@@ -1081,6 +1098,127 @@ function formatOpenDate(iso) {
   } catch { return ''; }
 }
 
+
+
+// SKUをクリップボードにコピー
+async function copySku(event, sku) {
+  if (event) { event.preventDefault(); event.stopPropagation(); }
+  if (!sku) { toast('⚠️ SKUが取得できません'); return; }
+  try {
+    await navigator.clipboard.writeText(sku);
+    toast(`📋 ${sku} をコピー`);
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = sku; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); toast(`📋 ${sku} をコピー`); }
+    catch { toast('⚠️ コピー失敗'); }
+    document.body.removeChild(ta);
+  }
+}
+
+// SKU一覧データから channel を取得（FBA/FBM判定用）
+function getSkuChannel(sku) {
+  if (!skuData.items || skuData.items.length === 0) return null;
+  const item = skuData.items.find(x => x.sku === sku);
+  return item ? item.channel : null;
+}
+
+// SKU一覧データから現在の在庫数を取得
+function getSkuCurrentStock(sku) {
+  if (!skuData.items || skuData.items.length === 0) return null;
+  const item = skuData.items.find(x => x.sku === sku);
+  return item ? (item.quantity || 0) : null;
+}
+
+// 在庫変更ダイアログを開く
+function askStockChange(sku) {
+  const r = results.find(x => x.sku === sku);
+  if (!r) { toast('⚠️ 対象SKUが見つかりません'); return; }
+  const current = getSkuCurrentStock(sku);
+  const currentText = current !== null ? `現在在庫: ${current}` : '現在在庫: 不明';
+
+  document.getElementById('dialogTitle').textContent = '在庫数を変更';
+  document.getElementById('dialogBody').innerHTML = `
+    <div>SKU: <strong>${escapeHtml(sku)}</strong></div>
+    <div style="font-size:12px;color:#666;margin:4px 0">${escapeHtml((r.name||'').substring(0,40))}</div>
+    <div style="margin:8px 0">${currentText}</div>
+    <input type="number" class="dialog-input" id="stockInput" placeholder="新しい在庫数（0で出品停止）" min="0" max="999999">
+    <div class="dialog-warn" style="margin-top:8px">⚠️ 0を入力すると出品停止になります</div>
+  `;
+  document.getElementById('dialogConfirm').textContent = '確認';
+  document.getElementById('dialogConfirm').onclick = () => {
+    const v = parseInt(document.getElementById('stockInput').value, 10);
+    if (isNaN(v) || v < 0) { toast('⚠️ 0以上の整数を入力'); return; }
+    closeDialog();
+    confirmStockChange(sku, v, r.name);
+  };
+  openDialog();
+  setTimeout(() => document.getElementById('stockInput').focus(), 100);
+}
+
+// 在庫変更の最終確認ダイアログ
+function confirmStockChange(sku, qty, name) {
+  const isStop = qty === 0;
+  document.getElementById('dialogTitle').textContent = isStop ? '⚠️ 出品停止の確認' : '在庫変更の確認';
+  document.getElementById('dialogBody').innerHTML = `
+    <div>SKU: <strong>${escapeHtml(sku)}</strong></div>
+    <div style="font-size:12px;color:#666;margin:4px 0">${escapeHtml((name||'').substring(0,40))}</div>
+    <div class="diff-preview">
+      <span class="new">在庫 ${qty}</span>
+    </div>
+    ${isStop ? '<div class="dialog-warn">⚠️ 0在庫で登録 → 出品停止になります。本当に実行しますか？</div>' : ''}
+  `;
+  document.getElementById('dialogConfirm').textContent = '実行';
+  document.getElementById('dialogConfirm').onclick = async () => {
+    closeDialog();
+    await executeStockChange(sku, qty, name);
+  };
+  openDialog();
+}
+
+// 在庫変更の実行
+async function executeStockChange(sku, qty, name) {
+  const st = document.getElementById(`stock-status-${sku}`);
+  if (st) { st.style.display = 'block'; st.className = 'update-status pending'; st.textContent = '⏳ 変更中...'; }
+
+  try {
+    const res = await fetch('/api/stock-update', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ sku, quantity: qty })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      if (st) { st.className = 'update-status ok'; st.textContent = `✅ ${data.message || '在庫変更受付'} (${qty})`; }
+      toast(`✅ ${sku} 在庫変更受付 (${qty})`);
+      addHistory({
+        at: Date.now(), sku, name,
+        oldPrice: getSkuCurrentStock(sku) || 0,
+        newPrice: qty,
+        type: 'stock',
+        ok: true, submissionId: data.submissionId
+      });
+    } else {
+      if (st) { st.className = 'update-status err'; st.textContent = `❌ ${(data.error || 'エラー').substring(0, 60)}`; }
+      toast(`❌ ${sku} 在庫変更失敗`);
+      addHistory({
+        at: Date.now(), sku, name,
+        oldPrice: getSkuCurrentStock(sku) || 0,
+        newPrice: qty,
+        type: 'stock',
+        ok: false, error: data.error
+      });
+    }
+  } catch (e) {
+    if (st) { st.className = 'update-status err'; st.textContent = `❌ ${e.message}`; }
+    toast(`❌ ${sku}: ${e.message}`);
+  }
+}
+
+
+
+  
 function toggleSku(cb) {
   // SKUをクリップボードにコピー
 async function copySku(event, sku) {
