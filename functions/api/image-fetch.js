@@ -58,20 +58,7 @@ export async function onRequestPost({ request, env }) {
     const catalogData = await res.json();
     const items = catalogData.items || [];
 
-    // === デバッグ用（取得率確認後に削除可）===
-    const debugInfo = {
-      returnedItems: items.length,
-      requestedCount: asinList.length,
-      hasNextToken: !!(catalogData.pagination?.nextToken),
-      itemsDetail: items.map(item => ({
-        asin: item.asin,
-        hasImages: Array.isArray(item.images),
-        imageGroupCount: Array.isArray(item.images) ? item.images.length : 0,
-        variants: item.images?.[0]?.images?.map(i => i.variant) || [],
-      })),
-    };
-    // === デバッグ用 ===
-
+    
     // ASIN -> imageUrl のマップを作成
     const imageMap = new Map();
     for (const item of items) {
