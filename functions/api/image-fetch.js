@@ -39,7 +39,7 @@ export async function onRequestPost({ request, env }) {
     // Catalog Items API 呼び出し
     const token = await getAccessToken(env);
     const marketplaceId = 'A1VC38T7YXB528';
-    const url = `https://sellingpartnerapi-fe.amazon.com/catalog/2022-04-01/items?identifiers=${encodeURIComponent(asinList.join(','))}&identifiersType=ASIN&marketplaceIds=${marketplaceId}&includedData=images`;
+    const url = `https://sellingpartnerapi-fe.amazon.com/catalog/2022-04-01/items?identifiers=${encodeURIComponent(asinList.join(','))}&identifiersType=ASIN&marketplaceIds=${marketplaceId}&includedData=images&pageSize=20`;
 
     const res = await fetch(url, {
       headers: { 'x-amz-access-token': token }
@@ -58,6 +58,20 @@ export async function onRequestPost({ request, env }) {
     const catalogData = await res.json();
     const items = catalogData.items || [];
 
+        // === デバッグ用（取得率確認後に削除可）===
+    const debugInfo = {
+      returnedItems: items.length,
+      requestedCount: asinList.length,
+      hasNextToken: !!(catalogData.pagination?.nextToken),
+      itemsDetail: items.map(item => ({
+        asin: item.asin,
+        hasImages: Array.isArray(item.images),
+        imageGroupCount: Array.isArray(item.images) ? item.images.length : 0,
+        variants: item.images?.[0]?.images?.map(i => i.variant) || [],
+      })),
+    };
+    // === デバッグ用 ===
+
     // ASIN -> imageUrl のマップを作成
     const imageMap = new Map();
     for (const item of items) {
@@ -69,18 +83,26 @@ export async function onRequestPost({ request, env }) {
           if (Array.isArray(imgGroup.images)) {
             // MAIN variant を優先
             const mainImg = imgGroup.images.find(i => i.variant === 'MAIN');
-            if (mainImg && mainImg.link) {
-              imageUrl = mainImg.link;
+            if (Array.isArray(item.images) && item.images.length > 0) {
+             for (const imgGroup of item.images) {
+              if (!Array.isArray(imgGroup.images) || imgGroup.images.length === 0) continue;
+
+          // 優先順位: MAIN > PT01〜PT08 > link があるもの最初
+              const priorityOrder = ['MAIN', 'PT01', 'PT02', 'PT03', 'PT04', 'PT05', 'PT06', 'PT07', 'PT08'];
+              let found = null;
+              for (const variant of priorityOrder) {
+               found = imgGroup.images.find(i => i.variant === variant && i.link);
+               if (found) break;
+              }
+              if (!found) {
+               found = imgGroup.images.find(i => i.link);
+              }
+              if (found) {
+               imageUrl = found.link;
               break;
+             }
             }
-            // MAINがなければ最初の画像を使用
-            if (imgGroup.images[0] && imgGroup.images[0].link) {
-              imageUrl = imgGroup.images[0].link;
-              break;
-            }
-          }
-        }
-      }
+           }
       if (imageUrl && asin) imageMap.set(asin, imageUrl);
     }
 
@@ -111,7 +133,9 @@ export async function onRequestPost({ request, env }) {
       updated: updatedCount,
       nextBatch: isLast ? null : nextBatch,
       done: isLast,
+      debug: debugInfo, // ← 一時的なデバッグ情報
     });
+          
   } catch (e) {
     return json({ ok: false, error: e.message, stack: e.stack }, 500);
   }
