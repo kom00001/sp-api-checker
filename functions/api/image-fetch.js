@@ -10,7 +10,7 @@ export async function onRequestPost({ request, env }) {
 
     const body = await request.json();
     const batchIndex = parseInt(body.batchIndex || 0, 10);
-    const batchSize = 20; // Catalog Items APIの最大
+    const batchSize = 20;
 
     // KVから現在の sku_list を取得
     const raw = await env.SKU_CACHE.get('sku_list');
@@ -36,7 +36,7 @@ export async function onRequestPost({ request, env }) {
       return json({ ok: true, batchIndex, totalBatches, processed: 0, fetched: 0, nextBatch: batchIndex + 1 });
     }
 
-    // Catalog Items API 呼び出し
+    // Catalog Items API 呼び出し（pageSize=20 必須）
     const token = await getAccessToken(env);
     const marketplaceId = 'A1VC38T7YXB528';
     const url = `https://sellingpartnerapi-fe.amazon.com/catalog/2022-04-01/items?identifiers=${encodeURIComponent(asinList.join(','))}&identifiersType=ASIN&marketplaceIds=${marketplaceId}&includedData=images&pageSize=20`;
@@ -58,7 +58,7 @@ export async function onRequestPost({ request, env }) {
     const catalogData = await res.json();
     const items = catalogData.items || [];
 
-        // === デバッグ用（取得率確認後に削除可）===
+    // === デバッグ用（取得率確認後に削除可）===
     const debugInfo = {
       returnedItems: items.length,
       requestedCount: asinList.length,
@@ -76,33 +76,29 @@ export async function onRequestPost({ request, env }) {
     const imageMap = new Map();
     for (const item of items) {
       const asin = item.asin;
-      // images配列から MAIN 画像を探す（marketplaceごとに配列）
       let imageUrl = null;
+
       if (Array.isArray(item.images) && item.images.length > 0) {
         for (const imgGroup of item.images) {
-          if (Array.isArray(imgGroup.images)) {
-            // MAIN variant を優先
-            const mainImg = imgGroup.images.find(i => i.variant === 'MAIN');
-            if (Array.isArray(item.images) && item.images.length > 0) {
-             for (const imgGroup of item.images) {
-              if (!Array.isArray(imgGroup.images) || imgGroup.images.length === 0) continue;
+          if (!Array.isArray(imgGroup.images) || imgGroup.images.length === 0) continue;
 
           // 優先順位: MAIN > PT01〜PT08 > link があるもの最初
-              const priorityOrder = ['MAIN', 'PT01', 'PT02', 'PT03', 'PT04', 'PT05', 'PT06', 'PT07', 'PT08'];
-              let found = null;
-              for (const variant of priorityOrder) {
-               found = imgGroup.images.find(i => i.variant === variant && i.link);
-               if (found) break;
-              }
-              if (!found) {
-               found = imgGroup.images.find(i => i.link);
-              }
-              if (found) {
-               imageUrl = found.link;
-              break;
-             }
-            }
-           }
+          const priorityOrder = ['MAIN', 'PT01', 'PT02', 'PT03', 'PT04', 'PT05', 'PT06', 'PT07', 'PT08'];
+          let found = null;
+          for (const variant of priorityOrder) {
+            found = imgGroup.images.find(i => i.variant === variant && i.link);
+            if (found) break;
+          }
+          if (!found) {
+            found = imgGroup.images.find(i => i.link);
+          }
+          if (found) {
+            imageUrl = found.link;
+            break;
+          }
+        }
+      }
+
       if (imageUrl && asin) imageMap.set(asin, imageUrl);
     }
 
@@ -118,7 +114,7 @@ export async function onRequestPost({ request, env }) {
     // KVに保存（全体を上書き）
     data.imageUpdated = new Date().toISOString();
     await env.SKU_CACHE.put('sku_list', JSON.stringify(data), {
-      expirationTtl: 60 * 60 * 24 * 30, // 30日
+      expirationTtl: 60 * 60 * 24 * 30,
     });
 
     const nextBatch = batchIndex + 1;
@@ -133,9 +129,9 @@ export async function onRequestPost({ request, env }) {
       updated: updatedCount,
       nextBatch: isLast ? null : nextBatch,
       done: isLast,
-      debug: debugInfo, // ← 一時的なデバッグ情報
+      debug: debugInfo,
     });
-          
+
   } catch (e) {
     return json({ ok: false, error: e.message, stack: e.stack }, 500);
   }
