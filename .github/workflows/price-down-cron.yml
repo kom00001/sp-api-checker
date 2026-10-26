@@ -1,0 +1,20 @@
+# File: .github/workflows/price-down-cron.yml
+name: Price Down Cron
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger scheduled endpoint
+        run: |
+          curl -X POST https://sp-api-checker.pages.dev/api/price-down/scheduled \
+            -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
+            --max-time 60 \
+            --fail-with-body \
+            --show-error \
+            --silent
