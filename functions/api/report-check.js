@@ -59,6 +59,31 @@ export async function onRequestGet({ request, env }) {
       summary: summarize(skus),
       skus,
     };
+
+        // 既存KVデータから imageUrl を引き継ぐ（画像の再取得を回避）
+    try {
+      const existingRaw = await env.SKU_CACHE.get('sku_list');
+      if (existingRaw) {
+        const existing = JSON.parse(existingRaw);
+        const existingSkus = Array.isArray(existing.skus) ? existing.skus : [];
+        const existingImageMap = new Map();
+        for (const item of existingSkus) {
+          if (item.sku && item.imageUrl) {
+            existingImageMap.set(item.sku, item.imageUrl);
+          }
+        }
+        for (const skuItem of skus) {
+          if (existingImageMap.has(skuItem.sku)) {
+            skuItem.imageUrl = existingImageMap.get(skuItem.sku);
+          }
+        }
+      }
+    } catch (e) {
+      // 既存データなし or 破損 → マージなしで続行
+    }
+
+
+    
     const payloadStr = JSON.stringify(payload);
     const payloadSize = new TextEncoder().encode(payloadStr).length;
 
