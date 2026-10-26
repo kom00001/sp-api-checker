@@ -1,3 +1,4 @@
+// File: functions/_middleware.ts
 interface Env {
   APP_PASSWORD: string;
   SESSION_SECRET: string;
@@ -11,6 +12,7 @@ const PUBLIC_PATHS = new Set([
   "/login.html",
   "/api/login",
   "/favicon.ico",
+  "/api/price-down/scheduled",
 ]);
 
 export const onRequest: PagesFunction<Env> = async (context) => {
