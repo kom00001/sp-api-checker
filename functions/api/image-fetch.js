@@ -58,7 +58,6 @@ export async function onRequestPost({ request, env }) {
     const catalogData = await res.json();
     const items = catalogData.items || [];
 
-    
     // ASIN -> imageUrl のマップを作成
     const imageMap = new Map();
     for (const item of items) {
@@ -116,7 +115,6 @@ export async function onRequestPost({ request, env }) {
       updated: updatedCount,
       nextBatch: isLast ? null : nextBatch,
       done: isLast,
-      debug: debugInfo,
     });
 
   } catch (e) {
