@@ -1,0 +1,590 @@
+<!-- Output: html -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>自動値下げ管理</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 12px;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    background: #f5f5f7;
+    color: #1d1d1f;
+    font-size: 14px;
+  }
+  h1 { font-size: 18px; margin: 0 0 12px; }
+  h2 { font-size: 15px; margin: 20px 0 8px; }
+  h3 { font-size: 13px; margin: 12px 0 6px; color: #666; }
+
+  .topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .back-link {
+    color: #0071e3;
+    text-decoration: none;
+    font-size: 13px;
+  }
+  .emergency-btn {
+    background: #ff3b30;
+    color: white;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .emergency-btn:active { background: #d70015; }
+
+  .group-card {
+    background: white;
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  .group-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #eee;
+  }
+  .group-title { font-weight: 600; font-size: 15px; }
+  .status-badge {
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .status-active { background: #d1f5d3; color: #1a7a1a; }
+  .status-inactive { background: #e5e5e7; color: #666; }
+  .status-running { background: #fff3cd; color: #856404; }
+
+  .form-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .form-row label {
+    font-size: 12px;
+    color: #666;
+    min-width: 70px;
+  }
+  input[type="number"] {
+    width: 100px;
+    padding: 6px 8px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  textarea {
+    width: 100%;
+    min-height: 80px;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: ui-monospace, "SF Mono", monospace;
+    resize: vertical;
+  }
+  button {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .btn-primary { background: #0071e3; color: white; }
+  .btn-primary:active { background: #0051a3; }
+  .btn-secondary { background: #e5e5e7; color: #1d1d1f; }
+  .btn-secondary:active { background: #c7c7cc; }
+  .btn-danger { background: #ff3b30; color: white; }
+  .btn-warning { background: #ff9500; color: white; }
+  .btn-small { padding: 4px 8px; font-size: 11px; }
+
+  .meta-info {
+    font-size: 11px;
+    color: #888;
+    margin: 4px 0;
+  }
+
+  .target-list {
+    max-height: 160px;
+    overflow-y: auto;
+    border: 1px solid #eee;
+    border-radius: 6px;
+    padding: 4px;
+    margin: 8px 0;
+    background: #fafafa;
+  }
+  .target-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 6px;
+    font-size: 12px;
+    font-family: ui-monospace, "SF Mono", monospace;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .target-item:last-child { border-bottom: none; }
+  .delete-sku {
+    background: none;
+    color: #ff3b30;
+    font-size: 14px;
+    padding: 2px 6px;
+  }
+
+  .log-section {
+    background: white;
+    border-radius: 10px;
+    padding: 12px;
+    margin-top: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  .log-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+  }
+  .log-table th, .log-table td {
+    padding: 6px 4px;
+    text-align: left;
+    border-bottom: 1px solid #f0f0f0;
+    vertical-align: top;
+  }
+  .log-table th {
+    background: #f9f9f9;
+    font-weight: 600;
+    color: #666;
+    font-size: 10px;
+  }
+  .log-status-success { color: #1a7a1a; font-weight: 600; }
+  .log-status-error { color: #d70015; font-weight: 600; }
+  .log-sku {
+    font-family: ui-monospace, "SF Mono", monospace;
+    word-break: break-all;
+  }
+  .log-time { color: #888; white-space: nowrap; }
+  .log-msg {
+    color: #666;
+    font-size: 10px;
+    word-break: break-word;
+  }
+
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 10px 20px;
+    background: rgba(0,0,0,0.85);
+    color: white;
+    border-radius: 20px;
+    font-size: 13px;
+    z-index: 1000;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+
+  .empty-msg { color: #999; font-size: 12px; padding: 8px; text-align: center; }
+  .refresh-info { font-size: 11px; color: #999; text-align: right; margin-top: 4px; }
+
+  details { margin-top: 8px; }
+  summary {
+    cursor: pointer;
+    font-size: 12px;
+    color: #0071e3;
+    padding: 4px 0;
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="/" class="back-link">← メインに戻る</a>
+  <button class="emergency-btn" onclick="emergencyStop()">🛑 全体緊急停止</button>
+</div>
+
+<h1>⏰ 自動値下げ管理</h1>
+
+<div id="groups-container">
+  <div class="empty-msg">読み込み中...</div>
+</div>
+
+<div class="log-section">
+  <h2>📜 実行ログ（最新50件）</h2>
+  <div class="refresh-info" id="refresh-info">—</div>
+  <table class="log-table">
+    <thead>
+      <tr>
+        <th>時刻</th>
+        <th>G</th>
+        <th>SKU</th>
+        <th>変更</th>
+        <th>結果</th>
+      </tr>
+    </thead>
+    <tbody id="logs-tbody">
+      <tr><td colspan="5" class="empty-msg">読み込み中...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = '/api/price-down/admin';
+let autoRefreshTimer = null;
+
+// ========================================
+// 初期化
+// ========================================
+window.addEventListener('load', async () => {
+  await refreshAll();
+  // 30秒ごとに自動更新
+  autoRefreshTimer = setInterval(refreshAll, 30000);
+});
+
+async function refreshAll() {
+  await Promise.all([loadGroups(), loadLogs()]);
+  document.getElementById('refresh-info').textContent =
+    '最終更新: ' + new Date().toLocaleTimeString('ja-JP');
+}
+
+// ========================================
+// グループ表示
+// ========================================
+async function loadGroups() {
+  try {
+    const res = await fetch(`${API}?action=groups`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    renderGroups(data.groups || []);
+  } catch (e) {
+    document.getElementById('groups-container').innerHTML =
+      `<div class="empty-msg">読み込み失敗: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderGroups(groups) {
+  const container = document.getElementById('groups-container');
+  container.innerHTML = '';
+
+  for (const g of groups) {
+    const card = document.createElement('div');
+    card.className = 'group-card';
+    card.innerHTML = buildGroupCardHtml(g);
+    container.appendChild(card);
+    // SKU一覧を読み込み
+    loadTargets(g.group_id);
+  }
+}
+
+function buildGroupCardHtml(g) {
+  const statusHtml = g.is_running
+    ? '<span class="status-badge status-running">⚙️ 実行中</span>'
+    : g.is_active
+      ? '<span class="status-badge status-active">✅ 稼働中</span>'
+      : '<span class="status-badge status-inactive">⏸ 停止中</span>';
+
+  const nextRunStr = g.next_run_at
+    ? formatJst(g.next_run_at)
+    : '未設定';
+  const lastRunStr = g.last_run_at
+    ? formatJst(g.last_run_at)
+    : 'なし';
+
+  return `
+    <div class="group-header">
+      <span class="group-title">グループ ${g.group_id}</span>
+      ${statusHtml}
+    </div>
+
+    <div class="form-row">
+      <label>値下げ額:</label>
+      <input type="number" id="amount-${g.group_id}" value="${g.price_down_amount}" min="0" max="999999">
+      <span style="font-size:12px;">円</span>
+      <button class="btn-primary btn-small" onclick="saveAmount(${g.group_id})">保存</button>
+    </div>
+
+    <div class="form-row">
+      <label>稼働:</label>
+      <button class="${g.is_active ? 'btn-secondary' : 'btn-primary'} btn-small"
+              onclick="toggleActive(${g.group_id}, ${!g.is_active})">
+        ${g.is_active ? '停止する' : '開始する'}
+      </button>
+      <button class="btn-warning btn-small" onclick="runNow(${g.group_id})"
+              ${!g.is_active || g.is_running ? 'disabled' : ''}>
+        🔄 今すぐ実行
+      </button>
+    </div>
+
+    <div class="meta-info">
+      SKU数: <strong>${g.sku_count}</strong>件 /
+      次回: ${nextRunStr} /
+      最終: ${lastRunStr}
+    </div>
+
+    <details>
+      <summary>対象SKU管理</summary>
+      <div id="targets-${g.group_id}" class="target-list">読み込み中...</div>
+      <textarea id="newskus-${g.group_id}" placeholder="SKUを改行区切りで入力（複数可）"></textarea>
+      <div class="form-row" style="margin-top:6px;">
+        <button class="btn-primary btn-small" onclick="addSkus(${g.group_id})">追加</button>
+        <button class="btn-danger btn-small" onclick="deleteAllSkus(${g.group_id})">全削除</button>
+      </div>
+    </details>
+  `;
+}
+
+// ========================================
+// SKU一覧
+// ========================================
+async function loadTargets(groupId) {
+  try {
+    const res = await fetch(`${API}?action=targets&group_id=${groupId}`);
+    const data = await res.json();
+    const container = document.getElementById(`targets-${groupId}`);
+    if (!container) return;
+
+    if (!data.targets || data.targets.length === 0) {
+      container.innerHTML = '<div class="empty-msg">SKUなし</div>';
+      return;
+    }
+
+    container.innerHTML = data.targets.map(t => `
+      <div class="target-item">
+        <span>${escapeHtml(t.sku)}</span>
+        <button class="delete-sku" onclick="deleteSku(${groupId}, ${t.id})">✕</button>
+      </div>
+    `).join('');
+  } catch (e) {
+    const container = document.getElementById(`targets-${groupId}`);
+    if (container) container.innerHTML = `<div class="empty-msg">読込失敗</div>`;
+  }
+}
+
+// ========================================
+// 操作系
+// ========================================
+async function saveAmount(groupId) {
+  const amount = parseInt(document.getElementById(`amount-${groupId}`).value, 10);
+  if (isNaN(amount) || amount < 0) {
+    toast('値下げ額が不正です');
+    return;
+  }
+  const res = await fetch(`${API}?action=groups`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ group_id: groupId, price_down_amount: amount }),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    toast(`G${groupId}: 値下げ額を${amount}円に更新`);
+    loadGroups();
+  } else {
+    toast('エラー: ' + (data.error || '不明'));
+  }
+}
+
+async function toggleActive(groupId, newState) {
+  if (newState) {
+    if (!confirm(`グループ${groupId}を稼働開始しますか？\n6時間ごとに自動値下げが実行されます`)) return;
+  } else {
+    if (!confirm(`グループ${groupId}を停止しますか？`)) return;
+  }
+  const res = await fetch(`${API}?action=groups`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ group_id: groupId, is_active: newState }),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    toast(`G${groupId}: ${newState ? '稼働開始' : '停止'}`);
+    loadGroups();
+  } else {
+    toast('エラー: ' + (data.error || '不明'));
+  }
+}
+
+async function runNow(groupId) {
+  if (!confirm(`グループ${groupId}を今すぐ実行しますか？`)) return;
+  const res = await fetch(`${API}?action=run_now`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ group_id: groupId }),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    toast(`G${groupId}: バックグラウンド実行開始`);
+    setTimeout(refreshAll, 2000);
+  } else {
+    toast('エラー: ' + (data.error || '不明'));
+  }
+}
+
+async function addSkus(groupId) {
+  const textarea = document.getElementById(`newskus-${groupId}`);
+  const raw = textarea.value.trim();
+  if (!raw) {
+    toast('SKUを入力してください');
+    return;
+  }
+  const res = await fetch(`${API}?action=targets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ group_id: groupId, skus: raw }),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    toast(`追加${data.added}件 / 既存${data.skipped}件`);
+    textarea.value = '';
+    loadTargets(groupId);
+    loadGroups();
+  } else {
+    toast('エラー: ' + (data.error || '不明'));
+  }
+}
+
+async function deleteSku(groupId, id) {
+  if (!confirm('このSKUを削除しますか？')) return;
+  const res = await fetch(`${API}?action=targets`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ group_id: groupId, id: id }),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    loadTargets(groupId);
+    loadGroups();
+  } else {
+    toast('削除失敗');
+  }
+}
+
+async function deleteAllSkus(groupId) {
+  if (!confirm(`グループ${groupId}のSKUを全削除しますか？\nこの操作は取り消せません`)) return;
+  const res = await fetch(`${API}?action=targets`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ group_id: groupId, all: true }),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    toast(`${data.count}件削除しました`);
+    loadTargets(groupId);
+    loadGroups();
+  } else {
+    toast('削除失敗');
+  }
+}
+
+async function emergencyStop() {
+  if (!confirm('⚠️ 全グループを緊急停止しますか？\nすべての自動値下げが停止します')) return;
+  const res = await fetch(`${API}?action=stop_all`, { method: 'POST' });
+  const data = await res.json();
+  if (data.ok) {
+    toast('🛑 全グループを停止しました');
+    loadGroups();
+  } else {
+    toast('停止失敗');
+  }
+}
+
+// ========================================
+// ログ表示
+// ========================================
+async function loadLogs() {
+  try {
+    const res = await fetch(`${API}?action=logs&limit=50`);
+    const data = await res.json();
+    renderLogs(data.logs || []);
+  } catch (e) {
+    document.getElementById('logs-tbody').innerHTML =
+      `<tr><td colspan="5" class="empty-msg">読込失敗</td></tr>`;
+  }
+}
+
+function renderLogs(logs) {
+  const tbody = document.getElementById('logs-tbody');
+  if (logs.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-msg">ログなし</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = logs.map(log => {
+    const statusClass = log.status === 'success' ? 'log-status-success' : 'log-status-error';
+    const statusText = log.status === 'success' ? '✓ 成功' : '✗ ' + log.status;
+    const priceChange = (log.old_price && log.new_price)
+      ? `${log.old_price}→${log.new_price}`
+      : (log.new_price ? `→${log.new_price}` : '-');
+    const msg = log.message ? `<div class="log-msg">${escapeHtml(log.message)}</div>` : '';
+
+    return `
+      <tr>
+        <td class="log-time">${formatJstShort(log.executed_at)}</td>
+        <td>${log.group_id}</td>
+        <td class="log-sku">${escapeHtml(log.sku)}</td>
+        <td>${priceChange}</td>
+        <td class="${statusClass}">${statusText}${msg}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+// ========================================
+// ユーティリティ
+// ========================================
+function formatJst(isoString) {
+  if (!isoString) return '-';
+  const d = new Date(isoString);
+  const m = d.getMonth() + 1;
+  const day = d.getDate();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${m}/${day} ${hh}:${mm}`;
+}
+
+function formatJstShort(isoString) {
+  if (!isoString) return '-';
+  const d = new Date(isoString);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  const m = d.getMonth() + 1;
+  const day = d.getDate();
+  return `${m}/${day}\n${hh}:${mm}:${ss}`;
+}
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+let toastTimer = null;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
+}
+</script>
+
+</body>
+</html>
