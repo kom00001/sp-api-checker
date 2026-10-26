@@ -6,11 +6,13 @@
 import { executeGroup, calculateNextRunAt } from './executor.js';
 
 const ADMIN_CONFIG = {
-  INTERVAL_HOURS: 6,
-  RANDOM_MINUTES: 15,
   IMMEDIATE_BLOCK_MINUTES: 10,   // 即時実行ブロック期間（分）
-  LOG_LIMIT_DEFAULT: 50,          // ログ取得デフォルト件数
+  LOG_LIMIT_DEFAULT: 50,
   LOG_LIMIT_MAX: 500,
+  INTERVAL_HOURS_MIN: 1,
+  INTERVAL_HOURS_MAX: 48,
+  RANDOM_MINUTES_MIN: 0,
+  RANDOM_MINUTES_MAX: 120,
 };
 
 // ========== GET ==========
@@ -101,13 +103,12 @@ export async function onRequestDelete({ request, env }) {
 
 async function getGroups(env) {
   const { results } = await env.DB.prepare(
-    `SELECT group_id, price_down_amount, is_active, is_running,
-            next_run_at, last_run_at, updated_at
+    `SELECT group_id, price_down_amount, interval_hours, random_minutes,
+            is_active, is_running, next_run_at, last_run_at, updated_at
      FROM price_down_groups
      ORDER BY group_id ASC`
   ).all();
 
-  // 各グループのSKU件数も取得
   const { results: counts } = await env.DB.prepare(
     `SELECT group_id, COUNT(*) as sku_count
      FROM price_down_targets
@@ -145,18 +146,57 @@ async function updateGroup(env, body) {
     binds.push(amount);
   }
 
+  if (body.interval_hours !== undefined) {
+    const hours = parseInt(body.interval_hours, 10);
+    if (
+      isNaN(hours) ||
+      hours < ADMIN_CONFIG.INTERVAL_HOURS_MIN ||
+      hours > ADMIN_CONFIG.INTERVAL_HOURS_MAX
+    ) {
+      return json({
+        error: `interval_hours must be ${ADMIN_CONFIG.INTERVAL_HOURS_MIN}-${ADMIN_CONFIG.INTERVAL_HOURS_MAX}`,
+      }, 400);
+    }
+    updates.push('interval_hours = ?');
+    binds.push(hours);
+  }
+
+  if (body.random_minutes !== undefined) {
+    const mins = parseInt(body.random_minutes, 10);
+    if (
+      isNaN(mins) ||
+      mins < ADMIN_CONFIG.RANDOM_MINUTES_MIN ||
+      mins > ADMIN_CONFIG.RANDOM_MINUTES_MAX
+    ) {
+      return json({
+        error: `random_minutes must be ${ADMIN_CONFIG.RANDOM_MINUTES_MIN}-${ADMIN_CONFIG.RANDOM_MINUTES_MAX}`,
+      }, 400);
+    }
+    updates.push('random_minutes = ?');
+    binds.push(mins);
+  }
+
   if (body.is_active !== undefined) {
     const active = body.is_active ? 1 : 0;
     updates.push('is_active = ?');
     binds.push(active);
 
-    // 稼働ONにする時、next_run_atが未設定または過去なら今から計算
+    // 稼働ONにする時、現在のグループ設定を取得してnext_run_atを計算
     if (active === 1) {
-      const nextRunAt = calculateNextRunAt(
-        null,
-        ADMIN_CONFIG.INTERVAL_HOURS,
-        ADMIN_CONFIG.RANDOM_MINUTES
-      );
+      const { results } = await env.DB.prepare(
+        `SELECT interval_hours, random_minutes FROM price_down_groups WHERE group_id = ?`
+      ).bind(groupId).all();
+      const g = results?.[0] || { interval_hours: 6, random_minutes: 15 };
+
+      // 更新対象の値を優先使用
+      const useHours = body.interval_hours !== undefined
+        ? parseInt(body.interval_hours, 10)
+        : g.interval_hours;
+      const useMins = body.random_minutes !== undefined
+        ? parseInt(body.random_minutes, 10)
+        : g.random_minutes;
+
+      const nextRunAt = calculateNextRunAt(null, useHours, useMins);
       updates.push('next_run_at = ?');
       binds.push(nextRunAt);
     }
@@ -208,7 +248,6 @@ async function addTargets(env, body) {
     return json({ error: 'invalid group_id' }, 400);
   }
 
-  // skus は配列 or 改行区切り文字列を受け付ける
   let skus = [];
   if (Array.isArray(body.skus)) {
     skus = body.skus;
@@ -218,7 +257,6 @@ async function addTargets(env, body) {
     skus = [body.sku];
   }
 
-  // 整形: trim、空文字除去、重複除去
   skus = [...new Set(
     skus.map((s) => String(s).trim()).filter((s) => s.length > 0 && s.length <= 100)
   )];
@@ -234,7 +272,6 @@ async function addTargets(env, body) {
   let added = 0;
   let skipped = 0;
 
-  // 1件ずつINSERT（重複はUNIQUE制約で弾かれる）
   for (const sku of skus) {
     try {
       await env.DB.prepare(
@@ -242,7 +279,6 @@ async function addTargets(env, body) {
       ).bind(groupId, sku, addedAt).run();
       added++;
     } catch (err) {
-      // UNIQUE制約違反 = 既に存在
       skipped++;
     }
   }
@@ -256,7 +292,6 @@ async function deleteTarget(env, body) {
     return json({ error: 'invalid group_id' }, 400);
   }
 
-  // id指定削除 または sku指定削除 または all削除
   if (body.id) {
     const id = parseInt(body.id, 10);
     await env.DB.prepare(
@@ -320,9 +355,9 @@ async function runNow(env, waitUntil, body) {
     return json({ error: 'invalid group_id' }, 400);
   }
 
-  // 10分以内の実行はブロック
   const { results: groups } = await env.DB.prepare(
-    `SELECT group_id, price_down_amount, is_active, is_running, next_run_at, last_run_at
+    `SELECT group_id, price_down_amount, interval_hours, random_minutes,
+            is_active, is_running, next_run_at, last_run_at
      FROM price_down_groups WHERE group_id = ?`
   ).bind(groupId).all();
 
@@ -347,7 +382,6 @@ async function runNow(env, waitUntil, body) {
     }
   }
 
-  // ロック取得
   const lockResult = await env.DB.prepare(
     `UPDATE price_down_groups
      SET is_running = 1
@@ -358,7 +392,6 @@ async function runNow(env, waitUntil, body) {
     return json({ error: 'group is already running or not active' }, 409);
   }
 
-  // バックグラウンドで実行
   waitUntil(
     runGroupSafely(env, group).catch((err) => {
       console.error(`Immediate run group ${groupId} error:`, err);
@@ -376,8 +409,8 @@ async function runGroupSafely(env, group) {
   } finally {
     const nextRunAt = calculateNextRunAt(
       group.next_run_at,
-      ADMIN_CONFIG.INTERVAL_HOURS,
-      ADMIN_CONFIG.RANDOM_MINUTES
+      group.interval_hours || 6,
+      group.random_minutes != null ? group.random_minutes : 15
     );
 
     await env.DB.prepare(
