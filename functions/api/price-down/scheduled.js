@@ -2,13 +2,9 @@
 //
 // GitHub Actionsから15分おきに叩かれるCron受け口。
 // X-Cron-Secretヘッダーで認証し、実行時刻を迎えたグループの値下げ処理を起動する。
+// 間隔・揺らぎはD1のpice_down_groupsテーブルの各グループ設定を使用。
 
 import { executeGroup, calculateNextRunAt } from './executor.js';
-
-const CONFIG = {
-  INTERVAL_HOURS: 6,       // 基本実行間隔（時間）
-  RANDOM_MINUTES: 15,      // ランダム揺らぎ幅（±分）
-};
 
 export async function onRequestPost(context) {
   const { request, env, waitUntil } = context;
@@ -31,7 +27,8 @@ export async function onRequestPost(context) {
   const nowIso = new Date().toISOString();
 
   const { results: dueGroups } = await env.DB.prepare(
-    `SELECT group_id, price_down_amount, next_run_at, last_run_at
+    `SELECT group_id, price_down_amount, interval_hours, random_minutes,
+            next_run_at, last_run_at
      FROM price_down_groups
      WHERE is_active = 1
        AND is_running = 0
@@ -50,21 +47,18 @@ export async function onRequestPost(context) {
   const launched = [];
 
   for (const group of dueGroups) {
-    // ロック取得（条件付きUPDATE）
     const lockResult = await env.DB.prepare(
       `UPDATE price_down_groups
        SET is_running = 1
        WHERE group_id = ? AND is_running = 0 AND is_active = 1`
     ).bind(group.group_id).run();
 
-    // ロック取得できなかった場合はスキップ
     if (lockResult.meta.changes !== 1) {
       continue;
     }
 
     launched.push(group.group_id);
 
-    // バックグラウンドで値下げ処理を実行
     waitUntil(
       runGroupSafely(env, group).catch((err) => {
         console.error(`Group ${group.group_id} execution error:`, err);
@@ -86,6 +80,7 @@ export const onRequestGet = onRequestPost;
 
 /**
  * グループ処理を安全に実行し、必ずロック解放と次回時刻計算を行う
+ * 間隔・揺らぎはgroup自身の値を使用（DB管理）
  */
 async function runGroupSafely(env, group) {
   const startedAt = new Date().toISOString();
@@ -93,14 +88,12 @@ async function runGroupSafely(env, group) {
   try {
     await executeGroup(env, group);
   } finally {
-    // 次回実行時刻を計算
     const nextRunAt = calculateNextRunAt(
       group.next_run_at,
-      CONFIG.INTERVAL_HOURS,
-      CONFIG.RANDOM_MINUTES
+      group.interval_hours || 6,
+      group.random_minutes != null ? group.random_minutes : 15
     );
 
-    // ロック解放 + 次回時刻 + 最終実行時刻を更新
     await env.DB.prepare(
       `UPDATE price_down_groups
        SET is_running = 0,
