@@ -81,7 +81,7 @@
     min-width: 70px;
   }
   input[type="number"] {
-    width: 100px;
+    width: 80px;
     padding: 6px 8px;
     border: 1px solid #ccc;
     border-radius: 6px;
@@ -112,11 +112,27 @@
   .btn-danger { background: #ff3b30; color: white; }
   .btn-warning { background: #ff9500; color: white; }
   .btn-small { padding: 4px 8px; font-size: 11px; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
 
   .meta-info {
     font-size: 11px;
     color: #888;
     margin: 4px 0;
+    line-height: 1.5;
+  }
+
+  .schedule-section {
+    background: #f9f9fb;
+    border: 1px solid #e8e8ed;
+    border-radius: 6px;
+    padding: 8px;
+    margin: 8px 0;
+  }
+  .schedule-title {
+    font-size: 11px;
+    color: #666;
+    font-weight: 600;
+    margin-bottom: 6px;
   }
 
   .target-list {
@@ -225,7 +241,7 @@
 </div>
 
 <div class="log-section">
-  <h2>📜 実行ログ（最新50件）</h2>
+  <h2>📜 実行ログ(最新50件)</h2>
   <div class="refresh-info" id="refresh-info">—</div>
   <table class="log-table">
     <thead>
@@ -249,12 +265,8 @@
 const API = '/api/price-down/admin';
 let autoRefreshTimer = null;
 
-// ========================================
-// 初期化
-// ========================================
 window.addEventListener('load', async () => {
   await refreshAll();
-  // 30秒ごとに自動更新
   autoRefreshTimer = setInterval(refreshAll, 30000);
 });
 
@@ -264,9 +276,6 @@ async function refreshAll() {
     '最終更新: ' + new Date().toLocaleTimeString('ja-JP');
 }
 
-// ========================================
-// グループ表示
-// ========================================
 async function loadGroups() {
   try {
     const res = await fetch(`${API}?action=groups`);
@@ -288,7 +297,6 @@ function renderGroups(groups) {
     card.className = 'group-card';
     card.innerHTML = buildGroupCardHtml(g);
     container.appendChild(card);
-    // SKU一覧を読み込み
     loadTargets(g.group_id);
   }
 }
@@ -300,12 +308,10 @@ function buildGroupCardHtml(g) {
       ? '<span class="status-badge status-active">✅ 稼働中</span>'
       : '<span class="status-badge status-inactive">⏸ 停止中</span>';
 
-  const nextRunStr = g.next_run_at
-    ? formatJst(g.next_run_at)
-    : '未設定';
-  const lastRunStr = g.last_run_at
-    ? formatJst(g.last_run_at)
-    : 'なし';
+  const nextRunStr = g.next_run_at ? formatJst(g.next_run_at) : '未設定';
+  const lastRunStr = g.last_run_at ? formatJst(g.last_run_at) : 'なし';
+  const intervalHours = g.interval_hours != null ? g.interval_hours : 6;
+  const randomMinutes = g.random_minutes != null ? g.random_minutes : 15;
 
   return `
     <div class="group-header">
@@ -318,6 +324,24 @@ function buildGroupCardHtml(g) {
       <input type="number" id="amount-${g.group_id}" value="${g.price_down_amount}" min="0" max="999999">
       <span style="font-size:12px;">円</span>
       <button class="btn-primary btn-small" onclick="saveAmount(${g.group_id})">保存</button>
+    </div>
+
+    <div class="schedule-section">
+      <div class="schedule-title">⏱ 実行サイクル</div>
+      <div class="form-row">
+        <label>間隔:</label>
+        <input type="number" id="interval-${g.group_id}" value="${intervalHours}" min="1" max="48">
+        <span style="font-size:12px;">時間ごと</span>
+      </div>
+      <div class="form-row">
+        <label>揺らぎ:</label>
+        <input type="number" id="random-${g.group_id}" value="${randomMinutes}" min="0" max="120">
+        <span style="font-size:12px;">分(±)</span>
+        <button class="btn-primary btn-small" onclick="saveSchedule(${g.group_id})">サイクル保存</button>
+      </div>
+      <div style="font-size:10px;color:#999;margin-top:4px;">
+        例: 間隔6時間・揺らぎ15分 → 5時間45分〜6時間15分の範囲でランダム実行
+      </div>
     </div>
 
     <div class="form-row">
@@ -333,15 +357,15 @@ function buildGroupCardHtml(g) {
     </div>
 
     <div class="meta-info">
-      SKU数: <strong>${g.sku_count}</strong>件 /
-      次回: ${nextRunStr} /
+      SKU数: <strong>${g.sku_count}</strong>件<br>
+      次回: ${nextRunStr}<br>
       最終: ${lastRunStr}
     </div>
 
     <details>
       <summary>対象SKU管理</summary>
       <div id="targets-${g.group_id}" class="target-list">読み込み中...</div>
-      <textarea id="newskus-${g.group_id}" placeholder="SKUを改行区切りで入力（複数可）"></textarea>
+      <textarea id="newskus-${g.group_id}" placeholder="SKUを改行区切りで入力(複数可)"></textarea>
       <div class="form-row" style="margin-top:6px;">
         <button class="btn-primary btn-small" onclick="addSkus(${g.group_id})">追加</button>
         <button class="btn-danger btn-small" onclick="deleteAllSkus(${g.group_id})">全削除</button>
@@ -350,9 +374,6 @@ function buildGroupCardHtml(g) {
   `;
 }
 
-// ========================================
-// SKU一覧
-// ========================================
 async function loadTargets(groupId) {
   try {
     const res = await fetch(`${API}?action=targets&group_id=${groupId}`);
@@ -377,9 +398,6 @@ async function loadTargets(groupId) {
   }
 }
 
-// ========================================
-// 操作系
-// ========================================
 async function saveAmount(groupId) {
   const amount = parseInt(document.getElementById(`amount-${groupId}`).value, 10);
   if (isNaN(amount) || amount < 0) {
@@ -400,11 +418,42 @@ async function saveAmount(groupId) {
   }
 }
 
+async function saveSchedule(groupId) {
+  const intervalHours = parseInt(document.getElementById(`interval-${groupId}`).value, 10);
+  const randomMinutes = parseInt(document.getElementById(`random-${groupId}`).value, 10);
+
+  if (isNaN(intervalHours) || intervalHours < 1 || intervalHours > 48) {
+    toast('間隔は1〜48時間で入力してください');
+    return;
+  }
+  if (isNaN(randomMinutes) || randomMinutes < 0 || randomMinutes > 120) {
+    toast('揺らぎは0〜120分で入力してください');
+    return;
+  }
+
+  const res = await fetch(`${API}?action=groups`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      group_id: groupId,
+      interval_hours: intervalHours,
+      random_minutes: randomMinutes,
+    }),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    toast(`G${groupId}: サイクルを${intervalHours}時間±${randomMinutes}分に更新`);
+    loadGroups();
+  } else {
+    toast('エラー: ' + (data.error || '不明'));
+  }
+}
+
 async function toggleActive(groupId, newState) {
   if (newState) {
-    if (!confirm(`グループ${groupId}を稼働開始しますか？\n6時間ごとに自動値下げが実行されます`)) return;
+    if (!confirm(`グループ${groupId}を稼働開始しますか?\n設定されたサイクルで自動値下げが実行されます`)) return;
   } else {
-    if (!confirm(`グループ${groupId}を停止しますか？`)) return;
+    if (!confirm(`グループ${groupId}を停止しますか?`)) return;
   }
   const res = await fetch(`${API}?action=groups`, {
     method: 'PUT',
@@ -421,7 +470,7 @@ async function toggleActive(groupId, newState) {
 }
 
 async function runNow(groupId) {
-  if (!confirm(`グループ${groupId}を今すぐ実行しますか？`)) return;
+  if (!confirm(`グループ${groupId}を今すぐ実行しますか?`)) return;
   const res = await fetch(`${API}?action=run_now`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -460,7 +509,7 @@ async function addSkus(groupId) {
 }
 
 async function deleteSku(groupId, id) {
-  if (!confirm('このSKUを削除しますか？')) return;
+  if (!confirm('このSKUを削除しますか?')) return;
   const res = await fetch(`${API}?action=targets`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
@@ -476,7 +525,7 @@ async function deleteSku(groupId, id) {
 }
 
 async function deleteAllSkus(groupId) {
-  if (!confirm(`グループ${groupId}のSKUを全削除しますか？\nこの操作は取り消せません`)) return;
+  if (!confirm(`グループ${groupId}のSKUを全削除しますか?\nこの操作は取り消せません`)) return;
   const res = await fetch(`${API}?action=targets`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
@@ -493,7 +542,7 @@ async function deleteAllSkus(groupId) {
 }
 
 async function emergencyStop() {
-  if (!confirm('⚠️ 全グループを緊急停止しますか？\nすべての自動値下げが停止します')) return;
+  if (!confirm('⚠️ 全グループを緊急停止しますか?\nすべての自動値下げが停止します')) return;
   const res = await fetch(`${API}?action=stop_all`, { method: 'POST' });
   const data = await res.json();
   if (data.ok) {
@@ -504,9 +553,6 @@ async function emergencyStop() {
   }
 }
 
-// ========================================
-// ログ表示
-// ========================================
 async function loadLogs() {
   try {
     const res = await fetch(`${API}?action=logs&limit=50`);
@@ -545,9 +591,6 @@ function renderLogs(logs) {
   }).join('');
 }
 
-// ========================================
-// ユーティリティ
-// ========================================
 function formatJst(isoString) {
   if (!isoString) return '-';
   const d = new Date(isoString);
